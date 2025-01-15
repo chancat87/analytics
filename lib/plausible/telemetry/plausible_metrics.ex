@@ -47,6 +47,25 @@ defmodule Plausible.PromEx.Plugins.PlausibleMetrics do
           unit: {:native, :millisecond},
           measurement: :duration
         ),
+        distribution(
+          metric_prefix ++ [:ingest, :events, :pipeline, :steps],
+          event_name: Ingestion.Event.telemetry_pipeline_step_duration(),
+          reporter_options: [
+            buckets: [10, 50, 100, 250, 350, 500, 1000, 5000, 10_000, 100_000, 500_000]
+          ],
+          unit: {:native, :microsecond},
+          measurement: :duration,
+          tags: [:step]
+        ),
+        distribution(
+          metric_prefix ++ [:sessions, :cache, :register, :lock],
+          event_name: Plausible.Session.CacheStore.lock_telemetry_event(),
+          reporter_options: [
+            buckets: [10, 50, 100, 250, 350, 500, 1000, 5000, 10_000, 100_000, 500_000]
+          ],
+          unit: {:native, :microsecond},
+          measurement: :duration
+        ),
         counter(
           metric_prefix ++ [:ingest, :events, :buffered, :total],
           event_name: Ingestion.Event.telemetry_event_buffered()
@@ -88,32 +107,39 @@ defmodule Plausible.PromEx.Plugins.PlausibleMetrics do
   end
 
   @doc """
-  Add telemetry events for Cachex user agents and sessions
+  Fire telemetry events for various caches
   """
   def execute_cache_metrics do
-    {:ok, user_agents_stats} = Cachex.stats(:user_agents)
-    {:ok, sessions_stats} = Cachex.stats(:sessions)
+    {:ok, user_agents_stats} = Plausible.Cache.Stats.gather(:user_agents)
+    {:ok, sessions_stats} = Plausible.Cache.Stats.gather(:sessions)
 
-    user_agents_hit_rate = Map.get(user_agents_stats, :hit_rate, 0.0)
-    sessions_hit_rate = Map.get(sessions_stats, :hit_rate, 0.0)
-
-    {:ok, user_agents_count} = Cachex.size(:user_agents)
-    {:ok, sessions_count} = Cachex.size(:sessions)
-
-    :telemetry.execute([:prom_ex, :plugin, :cachex, :user_agents], %{
-      count: user_agents_count,
-      hit_rate: user_agents_hit_rate
+    :telemetry.execute([:prom_ex, :plugin, :cache, :user_agents], %{
+      count: user_agents_stats.count,
+      hit_rate: user_agents_stats.hit_rate
     })
 
-    :telemetry.execute([:prom_ex, :plugin, :cachex, :sessions], %{
-      count: sessions_count,
-      hit_rate: sessions_hit_rate
+    :telemetry.execute([:prom_ex, :plugin, :cache, :sessions], %{
+      count: sessions_stats.count,
+      hit_rate: sessions_stats.hit_rate
     })
 
-    :telemetry.execute([:prom_ex, :plugin, :cachex, :sites], %{
+    :telemetry.execute([:prom_ex, :plugin, :cache, :sites], %{
       count: Site.Cache.size(),
       hit_rate: Site.Cache.hit_rate()
     })
+  end
+
+  def measure_duration(event, fun, meta \\ %{}) when is_function(fun, 0) do
+    {duration, result} = time_it(fun)
+    :telemetry.execute(event, %{duration: duration}, meta)
+    result
+  end
+
+  defp time_it(fun) do
+    start = System.monotonic_time()
+    result = fun.()
+    stop = System.monotonic_time()
+    {stop - start, result}
   end
 
   defp write_buffer_metrics(metric_prefix, poll_rate) do
@@ -144,32 +170,32 @@ defmodule Plausible.PromEx.Plugins.PlausibleMetrics do
       [
         last_value(
           metric_prefix ++ [:cache, :sessions, :size],
-          event_name: [:prom_ex, :plugin, :cachex, :sessions],
+          event_name: [:prom_ex, :plugin, :cache, :sessions],
           measurement: :count
         ),
         last_value(
           metric_prefix ++ [:cache, :user_agents, :size],
-          event_name: [:prom_ex, :plugin, :cachex, :user_agents],
+          event_name: [:prom_ex, :plugin, :cache, :user_agents],
           measurement: :count
         ),
         last_value(
           metric_prefix ++ [:cache, :user_agents, :hit_ratio],
-          event_name: [:prom_ex, :plugin, :cachex, :user_agents],
+          event_name: [:prom_ex, :plugin, :cache, :user_agents],
           measurement: :hit_rate
         ),
         last_value(
           metric_prefix ++ [:cache, :sessions, :hit_ratio],
-          event_name: [:prom_ex, :plugin, :cachex, :sessions],
+          event_name: [:prom_ex, :plugin, :cache, :sessions],
           measurement: :hit_rate
         ),
         last_value(
           metric_prefix ++ [:cache, :sites, :size],
-          event_name: [:prom_ex, :plugin, :cachex, :sites],
+          event_name: [:prom_ex, :plugin, :cache, :sites],
           measurement: :count
         ),
         last_value(
           metric_prefix ++ [:cache, :sites, :hit_ratio],
-          event_name: [:prom_ex, :plugin, :cachex, :sites],
+          event_name: [:prom_ex, :plugin, :cache, :sites],
           measurement: :hit_rate
         )
       ]

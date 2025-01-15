@@ -171,7 +171,7 @@ defmodule Plausible.Ingestion.RequestTest do
     assert request.props["custom2"] == "property2"
   end
 
-  @tag :full_build_only
+  @tag :ee_only
   test "parses revenue source field from a json string" do
     payload = %{
       name: "pageview",
@@ -187,7 +187,7 @@ defmodule Plausible.Ingestion.RequestTest do
     assert Decimal.new("20.2") == amount
   end
 
-  @tag :full_build_only
+  @tag :ee_only
   test "sets revenue source with integer amount" do
     payload = %{
       name: "pageview",
@@ -206,7 +206,7 @@ defmodule Plausible.Ingestion.RequestTest do
     assert Decimal.equal?(amount, Decimal.new("20.0"))
   end
 
-  @tag :full_build_only
+  @tag :ee_only
   test "sets revenue source with float amount" do
     payload = %{
       name: "pageview",
@@ -225,7 +225,7 @@ defmodule Plausible.Ingestion.RequestTest do
     assert Decimal.equal?(amount, Decimal.new("20.1"))
   end
 
-  @tag :full_build_only
+  @tag :ee_only
   test "parses string amounts into money structs" do
     payload = %{
       name: "pageview",
@@ -244,7 +244,7 @@ defmodule Plausible.Ingestion.RequestTest do
     assert Decimal.equal?(amount, Decimal.new("12.3"))
   end
 
-  @tag :full_build_only
+  @tag :ee_only
   test "ignores revenue data when currency is invalid" do
     payload = %{
       name: "pageview",
@@ -429,7 +429,32 @@ defmodule Plausible.Ingestion.RequestTest do
     assert changeset.errors[:request]
   end
 
-  @tag :full_build_only
+  test "long body length" do
+    payload = """
+    {
+      "name": "pageview", 
+      "domain": "dummy.site",
+      "url": "#{:binary.copy("a", 1_000)}"
+    }
+    """
+
+    within_read_limit =
+      :post
+      |> build_conn("/api/events", payload)
+      |> Request.build()
+
+    assert {:ok, _} = within_read_limit
+
+    exceeding_read_limit =
+      :post
+      |> build_conn("/api/events", payload)
+      |> Plug.Conn.assign(:read_body_limit, 800)
+      |> Request.build()
+
+    assert {:error, _} = exceeding_read_limit
+  end
+
+  @tag :ee_only
   test "encodable" do
     params = %{
       name: "pageview",
@@ -464,7 +489,8 @@ defmodule Plausible.Ingestion.RequestTest do
              "revenue_source" => %{"amount" => "12.3", "currency" => "USD"},
              "uri" => "https://dummy.site/pictures/index.html?foo=bar&baz=bam",
              "user_agent" => "Mozilla",
-             "ip_classification" => nil
+             "ip_classification" => nil,
+             "scroll_depth" => nil
            }
 
     assert %NaiveDateTime{} = NaiveDateTime.from_iso8601!(request["timestamp"])

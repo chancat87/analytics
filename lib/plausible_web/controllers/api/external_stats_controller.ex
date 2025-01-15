@@ -2,43 +2,31 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   use PlausibleWeb, :controller
   use Plausible.Repo
   use PlausibleWeb.Plugs.ErrorHandler
-  alias Plausible.Stats.{Query, Compare, Comparisons}
-
-  @metrics [
-    :visitors,
-    :visits,
-    :pageviews,
-    :views_per_visit,
-    :bounce_rate,
-    :visit_duration,
-    :events,
-    :conversion_rate
-  ]
-
-  @metric_mappings Enum.into(@metrics, %{}, fn metric -> {to_string(metric), metric} end)
+  alias Plausible.Stats.{Query, Compare, Comparisons, Metrics, Filters}
 
   def realtime_visitors(conn, _params) do
     site = conn.assigns.site
-    query = Query.from(site, %{"period" => "realtime"})
-    json(conn, Plausible.Stats.Clickhouse.current_visitors(site, query))
+    json(conn, Plausible.Stats.current_visitors(site))
   end
 
   def aggregate(conn, params) do
     site = Repo.preload(conn.assigns.site, :owner)
 
+    params = Map.put(params, "property", nil)
+
     with :ok <- validate_period(params),
          :ok <- validate_date(params),
-         query <- Query.from(site, params),
-         :ok <- validate_goal_filter(site, query.filters),
-         {:ok, metrics} <- parse_and_validate_metrics(params, nil, query),
+         query <- Query.from(site, params, debug_metadata(conn)),
+         :ok <- validate_filters(site, query.filters),
+         {:ok, metrics} <- parse_and_validate_metrics(params, query),
          :ok <- ensure_custom_props_access(site, query) do
       results =
         if params["compare"] == "previous_period" do
-          {:ok, prev_query} = Comparisons.compare(site, query, "previous_period")
+          comparison_query = Comparisons.get_comparison_query(query, %{mode: "previous_period"})
 
           [prev_result, curr_result] =
             Plausible.ClickhouseRepo.parallel_tasks([
-              fn -> Plausible.Stats.aggregate(site, prev_query, metrics) end,
+              fn -> Plausible.Stats.aggregate(site, comparison_query, metrics) end,
               fn -> Plausible.Stats.aggregate(site, query, metrics) end
             ])
 
@@ -53,7 +41,9 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
           Plausible.Stats.aggregate(site, query, metrics)
         end
 
-      json(conn, %{results: results})
+      payload = maybe_add_warning(%{results: results}, query)
+
+      json(conn, payload)
     else
       err_tuple -> send_json_error_response(conn, err_tuple)
     end
@@ -64,27 +54,34 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
 
     with :ok <- validate_period(params),
          :ok <- validate_date(params),
-         {:ok, property} <- validate_property(params),
-         query <- Query.from(site, params),
-         :ok <- validate_goal_filter(site, query.filters),
-         {:ok, metrics} <- parse_and_validate_metrics(params, property, query),
+         :ok <- validate_property(params),
+         query <- Query.from(site, params, debug_metadata(conn)),
+         :ok <- validate_filters(site, query.filters),
+         {:ok, metrics} <- parse_and_validate_metrics(params, query),
          {:ok, limit} <- validate_or_default_limit(params),
-         :ok <- ensure_custom_props_access(site, query, property) do
+         :ok <- ensure_custom_props_access(site, query) do
       page = String.to_integer(Map.get(params, "page", "1"))
-      results = Plausible.Stats.breakdown(site, query, property, metrics, {limit, page})
+      results = Plausible.Stats.breakdown(site, query, metrics, {limit, page})
+      payload = maybe_add_warning(%{results: results}, query)
 
-      json(conn, %{results: results})
+      json(conn, payload)
     else
       err_tuple -> send_json_error_response(conn, err_tuple)
     end
   end
 
   defp validate_property(%{"property" => property}) do
-    if Plausible.Stats.Props.valid_prop?(property) do
-      {:ok, property}
-    else
-      {:error,
-       "Invalid property '#{property}'. Please provide a valid property for the breakdown endpoint: https://plausible.io/docs/stats-api#properties"}
+    cond do
+      property == "event:hostname" ->
+        {:error,
+         "Property 'event:hostname' is currently not supported for breakdowns.  Please provide a valid property for the breakdown endpoint: https://plausible.io/docs/stats-api#properties"}
+
+      Plausible.Stats.Legacy.Dimensions.valid?(property) ->
+        :ok
+
+      true ->
+        {:error,
+         "Invalid property '#{property}'. Please provide a valid property for the breakdown endpoint: https://plausible.io/docs/stats-api#properties"}
     end
   end
 
@@ -106,35 +103,35 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   @default_breakdown_limit 100
   defp validate_or_default_limit(_), do: {:ok, @default_breakdown_limit}
 
-  defp parse_and_validate_metrics(params, property, query) do
+  defp parse_and_validate_metrics(params, query) do
     metrics =
       Map.get(params, "metrics", "visitors")
       |> String.split(",")
 
-    case validate_all_metrics(metrics, property, query) do
+    case validate_metrics(metrics, query) do
       {:error, reason} ->
         {:error, reason}
 
       metrics ->
-        {:ok, Enum.map(metrics, &Map.fetch!(@metric_mappings, &1))}
+        {:ok, Enum.map(metrics, &Metrics.from_string!/1)}
     end
   end
 
-  @spec ensure_custom_props_access(Plausible.Site.t(), Query.t(), String.t() | nil) ::
+  @spec ensure_custom_props_access(Plausible.Site.t(), Query.t()) ::
           :ok | {:error, {402, String.t()}}
-  defp ensure_custom_props_access(site, query, property \\ nil) do
+  defp ensure_custom_props_access(site, query) do
     allowed_props = Plausible.Props.allowed_for(site, bypass_setup?: true)
-    prop_filter = Query.get_filter_by_prefix(query, "event:props:")
+    prop_filter = Filters.get_toplevel_filter(query, "event:props:")
 
     query_allowed? =
-      case {prop_filter, property, allowed_props} do
+      case {prop_filter, query.dimensions, allowed_props} do
         {_, _, :all} ->
           true
 
-        {{"event:props:" <> prop, _}, _property, allowed_props} ->
+        {[_, "event:props:" <> prop | _], _property, allowed_props} ->
           prop in allowed_props
 
-        {_filter, "event:props:" <> prop, allowed_props} ->
+        {_filter, ["event:props:" <> prop], allowed_props} ->
           prop in allowed_props
 
         _ ->
@@ -149,21 +146,53 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
     end
   end
 
-  defp validate_all_metrics(metrics, property, query) do
+  defp validate_metrics(metrics, query) do
+    if length(metrics) == length(Enum.uniq(metrics)) do
+      validate_each_metric(metrics, query)
+    else
+      {:error, "Metrics cannot be queried multiple times."}
+    end
+  end
+
+  defp validate_each_metric(metrics, query) do
     Enum.reduce_while(metrics, [], fn metric, acc ->
-      case validate_metric(metric, property, query) do
+      case validate_metric(metric, query) do
         {:ok, metric} -> {:cont, acc ++ [metric]}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp validate_metric("conversion_rate" = metric, property, query) do
+  defp validate_metric("time_on_page" = metric, query) do
     cond do
-      property == "event:goal" ->
+      Filters.filtering_on_dimension?(query, "event:goal") ->
+        {:error, "Metric `#{metric}` cannot be queried when filtering by `event:goal`"}
+
+      Filters.filtering_on_dimension?(query, "event:name") ->
+        {:error, "Metric `#{metric}` cannot be queried when filtering by `event:name`"}
+
+      query.dimensions == ["event:page"] ->
         {:ok, metric}
 
-      query.filters["event:goal"] ->
+      not Enum.empty?(query.dimensions) ->
+        {:error,
+         "Metric `#{metric}` is not supported in breakdown queries (except `event:page` breakdown)"}
+
+      Filters.filtering_on_dimension?(query, "event:page") ->
+        {:ok, metric}
+
+      true ->
+        {:error,
+         "Metric `#{metric}` can only be queried in a page breakdown or with a page filter."}
+    end
+  end
+
+  defp validate_metric("conversion_rate" = metric, query) do
+    cond do
+      query.dimensions == ["event:goal"] ->
+        {:ok, metric}
+
+      Filters.filtering_on_dimension?(query, "event:goal") ->
         {:ok, metric}
 
       true ->
@@ -172,45 +201,38 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
     end
   end
 
-  defp validate_metric("events" = metric, _, query) do
-    if query.include_imported do
-      {:error, "Metric `#{metric}` cannot be queried with imported data"}
-    else
-      {:ok, metric}
-    end
-  end
-
-  defp validate_metric(metric, _, _) when metric in ["visitors", "pageviews"] do
+  defp validate_metric(metric, _) when metric in ["visitors", "pageviews", "events"] do
     {:ok, metric}
   end
 
-  defp validate_metric("views_per_visit" = metric, property, query) do
+  defp validate_metric("views_per_visit" = metric, query) do
     cond do
-      query.filters["event:page"] ->
+      Filters.filtering_on_dimension?(query, "event:page") ->
         {:error, "Metric `#{metric}` cannot be queried with a filter on `event:page`."}
 
-      property != nil ->
+      not Enum.empty?(query.dimensions) ->
         {:error, "Metric `#{metric}` is not supported in breakdown queries."}
 
       true ->
-        validate_session_metric(metric, property, query)
+        validate_session_metric(metric, query)
     end
   end
 
-  defp validate_metric(metric, property, query)
+  defp validate_metric(metric, query)
        when metric in ["visits", "bounce_rate", "visit_duration"] do
-    validate_session_metric(metric, property, query)
+    validate_session_metric(metric, query)
   end
 
-  defp validate_metric(metric, _, _) do
+  defp validate_metric(metric, _) do
     {:error,
      "The metric `#{metric}` is not recognized. Find valid metrics from the documentation: https://plausible.io/docs/stats-api#metrics"}
   end
 
-  defp validate_session_metric(metric, property, query) do
+  defp validate_session_metric(metric, query) do
     cond do
-      event_only_property?(property) ->
-        {:error, "Session metric `#{metric}` cannot be queried for breakdown by `#{property}`."}
+      length(query.dimensions) == 1 and event_only_property?(hd(query.dimensions)) ->
+        {:error,
+         "Session metric `#{metric}` cannot be queried for breakdown by `#{query.dimensions}`."}
 
       event_only_filter = find_event_only_filter(query) ->
         {:error,
@@ -222,7 +244,9 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   end
 
   defp find_event_only_filter(query) do
-    Map.keys(query.filters) |> Enum.find(&event_only_property?/1)
+    query.filters
+    |> Enum.map(fn [_op, prop | _] -> prop end)
+    |> Enum.find(&event_only_property?/1)
   end
 
   defp event_only_property?("event:name"), do: true
@@ -233,16 +257,31 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
   def timeseries(conn, params) do
     site = Repo.preload(conn.assigns.site, :owner)
 
+    params = Map.put(params, "property", nil)
+
+    params =
+      if Map.get(params, "interval") == "date" do
+        %{params | "interval" => "day"}
+      else
+        params
+      end
+
     with :ok <- validate_period(params),
          :ok <- validate_date(params),
          :ok <- validate_interval(params),
-         query <- Query.from(site, params),
-         :ok <- validate_goal_filter(site, query.filters),
-         {:ok, metrics} <- parse_and_validate_metrics(params, nil, query),
+         query <- Query.from(site, params, debug_metadata(conn)),
+         :ok <- validate_filters(site, query.filters),
+         {:ok, metrics} <- parse_and_validate_metrics(params, query),
          :ok <- ensure_custom_props_access(site, query) do
-      graph = Plausible.Stats.timeseries(site, query, metrics)
+      {results, _, meta} = Plausible.Stats.timeseries(site, query, metrics)
 
-      json(conn, %{results: graph})
+      payload =
+        case meta[:imports_warning] do
+          nil -> %{results: results}
+          warning -> %{results: results, warning: warning}
+        end
+
+      json(conn, payload)
     else
       err_tuple -> send_json_error_response(conn, err_tuple)
     end
@@ -289,7 +328,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
 
   defp validate_period(_), do: :ok
 
-  @valid_intervals ["date", "month"]
+  @valid_intervals ["day", "month"]
   @valid_intervals_str Enum.map(@valid_intervals, &("`" <> &1 <> "`")) |> Enum.join(", ")
 
   defp validate_interval(%{"interval" => interval}) do
@@ -303,17 +342,22 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
 
   defp validate_interval(_), do: :ok
 
-  defp validate_goal_filter(site, %{"event:goal" => {_type, goal_filter}}) do
-    configured_goals =
-      Plausible.Goals.for_site(site)
-      |> Enum.map(fn
-        %{page_path: path} when is_binary(path) -> "Visit " <> path
-        %{event_name: event_name} -> event_name
-      end)
+  defp validate_filters(site, filters) do
+    Enum.reduce_while(filters, :ok, fn filter, _ ->
+      case validate_filter(site, filter) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
-    goals_in_filter =
-      List.wrap(goal_filter)
-      |> Plausible.Stats.Filters.Utils.unwrap_goal_value()
+  defp validate_filter(site, [_type, "event:goal", goal_filter | _rest]) do
+    configured_goals =
+      site
+      |> Plausible.Goals.for_site()
+      |> Enum.map(& &1.display_name)
+
+    goals_in_filter = List.wrap(goal_filter)
 
     if found = Enum.find(goals_in_filter, &(&1 not in configured_goals)) do
       msg =
@@ -326,7 +370,14 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
     end
   end
 
-  defp validate_goal_filter(_site, _filters), do: :ok
+  defp validate_filter(_site, [_, property | _]) do
+    if Plausible.Stats.Legacy.Dimensions.valid?(property) do
+      :ok
+    else
+      {:error,
+       "Invalid filter property '#{property}'. Please provide a valid filter property: https://plausible.io/docs/stats-api#properties"}
+    end
+  end
 
   defp goal_not_configured_message("Visit " <> page_path) do
     "The pageview goal for the pathname `#{page_path}` is not configured for this site. "
@@ -334,6 +385,20 @@ defmodule PlausibleWeb.Api.ExternalStatsController do
 
   defp goal_not_configured_message(goal) do
     "The goal `#{goal}` is not configured for this site. "
+  end
+
+  defp maybe_add_warning(payload, %{skip_imported_reason: reason})
+       when reason in [nil, :not_requested, :no_imported_data, :out_of_range, :manual_exclusion] do
+    payload
+  end
+
+  defp maybe_add_warning(payload, %{skip_imported_reason: :unsupported_query}) do
+    Map.put(
+      payload,
+      :warning,
+      "Imported stats are not included in the results because query parameters are not supported. " <>
+        "For more information, see: https://plausible.io/docs/stats-api#filtering-imported-stats"
+    )
   end
 
   defp send_json_error_response(conn, {:error, {status, msg}}) do

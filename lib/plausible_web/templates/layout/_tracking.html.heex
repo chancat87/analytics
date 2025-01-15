@@ -1,4 +1,4 @@
-<%= on_full_build do %>
+<%= on_ee do %>
   <%= if !@conn.assigns[:skip_plausible_tracking] do %>
     <script
       defer
@@ -16,12 +16,27 @@
         const pageUrl = window.location.href
       <% end %>
 
-      plausible('pageview', {
-        u: pageUrl,
-        props: {
-          logged_in: <%= is_map(@conn.assigns[:current_user]) %>,
-          theme: '<%= if @conn.assigns[:current_user], do: @conn.assigns[:current_user].theme, else: "system" %>',
-          browser_language: navigator.language || navigator.userLanguage
+      const props = {
+        logged_in: <%= is_map(@conn.assigns[:current_user]) %>,
+        browser_language: navigator.language || navigator.userLanguage
+      }
+
+      <%= if @conn.assigns[:current_user] do %>
+        props.theme = '<%= @conn.assigns[:current_user].theme %>'
+      <% end %>
+
+      const defaultEventOptions = {u: pageUrl, props: props}
+
+      window.trackCustomEvent = function(event_name, options) {
+        plausible(event_name, {...defaultEventOptions, ...options})
+      }
+
+      plausible('pageview', defaultEventOptions)
+
+      window.addEventListener('pageshow', function(event) {
+        if (event.persisted) {
+          // Page was restored from bfcache - trigger a pageview
+          plausible('pageview', defaultEventOptions);
         }
       })
     </script>

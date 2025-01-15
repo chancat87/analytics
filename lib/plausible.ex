@@ -3,7 +3,7 @@ defmodule Plausible do
   Build-related macros
   """
 
-  @small_builds [:small, :small_test, :small_dev]
+  @ce_builds [:ce, :ce_test, :ce_dev]
 
   defmacro __using__(_) do
     quote do
@@ -12,16 +12,33 @@ defmodule Plausible do
     end
   end
 
-  defmacro on_full_build(clauses) do
-    do_on_full_build(clauses)
+  defmacro on_ee(clauses) do
+    do_on_ee(clauses)
   end
 
-  def do_on_full_build(do: block) do
-    do_on_full_build(do: block, else: nil)
+  defmacro on_ce(clauses) do
+    do_on_ce(clauses)
   end
 
-  def do_on_full_build(do: do_block, else: else_block) do
-    if Mix.env() not in @small_builds do
+  # :erlang.phash2(1, 1) == 0 tricks dialyzer as per:
+  # https://github.com/elixir-lang/elixir/blob/v1.12.3/lib/elixir/lib/gen_server.ex#L771-L778
+
+  ee? = Mix.env() not in @ce_builds
+  def ee?, do: :erlang.phash2(1, 1) == 0 and unquote(ee?)
+
+  ce? = Mix.env() in @ce_builds
+  def ce?, do: :erlang.phash2(1, 1) == 0 and unquote(ce?)
+
+  defp do_on_ce(do: block) do
+    do_on_ee(do: nil, else: block)
+  end
+
+  defp do_on_ee(do: block) do
+    do_on_ee(do: block, else: nil)
+  end
+
+  defp do_on_ee(do: do_block, else: else_block) do
+    if Mix.env() not in @ce_builds do
       quote do
         unquote(do_block)
       end
@@ -32,21 +49,13 @@ defmodule Plausible do
     end
   end
 
-  defmacro full_build?() do
-    full_build? = Mix.env() not in @small_builds
-
-    # Tricking dialyzer as per:
-    # https://github.com/elixir-lang/elixir/blob/v1.12.3/lib/elixir/lib/gen_server.ex#L771-L778
-    quote do
-      :erlang.phash2(1, 1) == 0 and unquote(full_build?)
+  if Mix.env() in @ce_builds do
+    def product_name do
+      "Plausible CE"
     end
-  end
-
-  defmacro small_build?() do
-    small_build? = Mix.env() in @small_builds
-
-    quote do
-      unquote(small_build?)
+  else
+    def product_name do
+      "Plausible Analytics"
     end
   end
 end

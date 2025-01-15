@@ -83,7 +83,7 @@ defmodule Plausible.Billing.PaddleApi do
     end
   end
 
-  @spec get_invoices(Plausible.Billing.Subscription.t()) ::
+  @spec get_invoices(Plausible.Billing.Subscription.t() | nil) ::
           {:ok, list()}
           | {:error, :request_failed}
           | {:error, :no_invoices}
@@ -98,8 +98,8 @@ defmodule Plausible.Billing.PaddleApi do
       vendor_auth_code: config[:vendor_auth_code],
       subscription_id: subscription.paddle_subscription_id,
       is_paid: 1,
-      from: Timex.shift(Timex.today(), years: -5) |> Timex.format!("{YYYY}-{0M}-{0D}"),
-      to: Timex.shift(Timex.today(), days: 1) |> Timex.format!("{YYYY}-{0M}-{0D}")
+      from: Date.shift(Date.utc_today(), year: -5) |> Calendar.strftime("%Y-%m-%d"),
+      to: Date.shift(Date.utc_today(), day: 1) |> Calendar.strftime("%Y-%m-%d")
     }
 
     with {:ok, %{body: body}} <- HTTPClient.post(invoices_url(), @headers, params),
@@ -108,7 +108,6 @@ defmodule Plausible.Billing.PaddleApi do
       Enum.sort(response, fn %{"payout_date" => d1}, %{"payout_date" => d2} ->
         Date.compare(Date.from_iso8601!(d1), Date.from_iso8601!(d2)) == :gt
       end)
-      |> Enum.take(12)
       |> then(&{:ok, &1})
     else
       error ->
@@ -120,8 +119,10 @@ defmodule Plausible.Billing.PaddleApi do
     end
   end
 
-  def fetch_prices([_ | _] = product_ids) do
-    case HTTPClient.impl().get(prices_url(), @headers, %{product_ids: Enum.join(product_ids, ",")}) do
+  def fetch_prices([_ | _] = product_ids, customer_ip) do
+    params = %{product_ids: Enum.join(product_ids, ","), customer_ip: customer_ip}
+
+    case HTTPClient.impl().get(prices_url(), @headers, params) do
       {:ok, %{body: %{"success" => true, "response" => %{"products" => products}}}} ->
         products =
           Enum.into(products, %{}, fn %{

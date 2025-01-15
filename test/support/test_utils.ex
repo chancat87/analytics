@@ -35,30 +35,33 @@ defmodule Plausible.TestUtils do
   end
 
   def create_user(_) do
-    {:ok, user: Factory.insert(:user)}
+    {:ok, user: Plausible.Teams.Test.new_user()}
   end
 
   def create_site(%{user: user}) do
-    site =
-      Factory.insert(:site,
-        members: [user]
+    {:ok, site: Plausible.Teams.Test.new_site(owner: user)}
+  end
+
+  def create_team(%{user: user}) do
+    {:ok, team} = Plausible.Teams.get_or_create(user)
+    {:ok, team: team}
+  end
+
+  def create_legacy_site_import(%{site: site}) do
+    create_site_import(%{site: site, create_legacy_import?: true})
+  end
+
+  def create_site_import(%{site: site} = opts) do
+    site_import =
+      Factory.insert(:site_import,
+        site: site,
+        start_date: ~D[2005-01-01],
+        end_date: Timex.today(),
+        source: :universal_analytics,
+        legacy: opts[:create_legacy_import?] == true
       )
 
-    {:ok, site: site}
-  end
-
-  def add_imported_data(%{site: site}) do
-    site =
-      site
-      |> Plausible.Site.start_import(~D[2005-01-01], Timex.today(), "Google Analytics", "ok")
-      |> Repo.update!()
-
-    {:ok, site: site}
-  end
-
-  def create_new_site(%{user: user}) do
-    site = Factory.insert(:site, members: [user])
-    {:ok, site: site}
+    {:ok, site_import: site_import}
   end
 
   def create_api_key(%{user: user}) do
@@ -83,42 +86,21 @@ defmodule Plausible.TestUtils do
 
         Factory.build(:pageview, pageview)
         |> Map.from_struct()
-        |> Map.delete(:__meta__)
+        |> Map.drop([:__meta__, :acquisition_channel])
         |> update_in([:timestamp], &to_naive_truncate/1)
       end)
 
     Plausible.IngestRepo.insert_all(Plausible.ClickhouseEventV2, pageviews)
   end
 
-  def create_events(events) do
-    events =
-      Enum.map(events, fn event ->
-        Factory.build(:event, event)
-        |> Map.from_struct()
-        |> Map.delete(:__meta__)
-        |> update_in([:timestamp], &to_naive_truncate/1)
-      end)
-
-    Plausible.IngestRepo.insert_all(Plausible.ClickhouseEventV2, events)
-  end
-
-  def create_sessions(sessions) do
-    sessions =
-      Enum.map(sessions, fn session ->
-        Factory.build(:ch_session, session)
-        |> Map.from_struct()
-        |> Map.delete(:__meta__)
-        |> update_in([:timestamp], &to_naive_truncate/1)
-        |> update_in([:start], &to_naive_truncate/1)
-      end)
-
-    Plausible.IngestRepo.insert_all(Plausible.ClickhouseSessionV2, sessions)
-  end
-
   def log_in(%{user: user, conn: conn}) do
     conn =
-      init_session(conn)
-      |> Plug.Conn.put_session(:current_user_id, user.id)
+      conn
+      |> init_session()
+      |> PlausibleWeb.UserAuth.log_in_user(user)
+      |> Phoenix.ConnTest.recycle()
+      |> Map.put(:secret_key_base, secret_key_base())
+      |> init_session()
 
     {:ok, conn: conn}
   end
@@ -194,16 +176,13 @@ defmodule Plausible.TestUtils do
   end
 
   defp populate_native_stats(events) do
-    sessions =
-      Enum.reduce(events, %{}, fn event, sessions ->
-        session_id = Plausible.Session.CacheStore.on_event(event, nil)
-        Map.put(sessions, {event.site_id, event.user_id}, session_id)
-      end)
+    for event_params <- events do
+      {:ok, session} = Plausible.Session.CacheStore.on_event(event_params, event_params, nil)
 
-    Enum.each(events, fn event ->
-      event = Map.put(event, :session_id, sessions[{event.site_id, event.user_id}])
-      Plausible.Event.WriteBuffer.insert(event)
-    end)
+      event_params
+      |> Plausible.ClickhouseEventV2.merge_session(session)
+      |> Plausible.Event.WriteBuffer.insert()
+    end
 
     Plausible.Session.WriteBuffer.flush()
     Plausible.Event.WriteBuffer.flush()
@@ -252,12 +231,66 @@ defmodule Plausible.TestUtils do
 
         {count == expected, count}
       end,
-      200,
+      100,
       10
     )
   end
 
   def random_ip() do
     Enum.map_join(1..4, ".", fn _ -> Enum.random(1..254) end)
+  end
+
+  def minio_running? do
+    %{host: host, port: port} = ExAws.Config.new(:s3)
+    healthcheck_req = Finch.build(:head, "http://#{host}:#{port}")
+
+    case Finch.request(healthcheck_req, Plausible.Finch) do
+      {:ok, %Finch.Response{}} -> true
+      {:error, %Mint.TransportError{reason: :econnrefused}} -> false
+    end
+  end
+
+  def ensure_minio do
+    unless minio_running?() do
+      %{host: host, port: port} = ExAws.Config.new(:s3)
+
+      IO.puts("""
+      #{IO.ANSI.red()}
+      You are trying to run MinIO tests (--include minio) \
+      but nothing is running on #{"http://#{host}:#{port}"}.
+      #{IO.ANSI.blue()}Please make sure to start MinIO with `make minio`#{IO.ANSI.reset()}
+      """)
+
+      :init.stop(1)
+    end
+  end
+
+  if Mix.env() == :test do
+    def maybe_fake_minio(_context) do
+      unless minio_running?() do
+        %{port: port} = ExAws.Config.new(:s3)
+        bypass = Bypass.open(port: port)
+
+        Bypass.expect(bypass, fn conn ->
+          # we only need to fake HeadObject, all the other S3 requests are "controlled"
+          "HEAD" = conn.method
+
+          # we pretent the object is not found
+          Plug.Conn.send_resp(conn, 404, [])
+        end)
+      end
+
+      :ok
+    end
+  else
+    def maybe_fake_minio(_context) do
+      :ok
+    end
+  end
+
+  defp secret_key_base() do
+    :plausible
+    |> Application.fetch_env!(PlausibleWeb.Endpoint)
+    |> Keyword.fetch!(:secret_key_base)
   end
 end

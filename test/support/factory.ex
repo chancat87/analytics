@@ -3,6 +3,51 @@ defmodule Plausible.Factory do
   require Plausible.Billing.Subscription.Status
   alias Plausible.Billing.Subscription
 
+  def team_factory do
+    %Plausible.Teams.Team{
+      name: "My Team",
+      trial_expiry_date: Timex.today() |> Timex.shift(days: 30),
+      setup_complete: true,
+      setup_at: NaiveDateTime.utc_now()
+    }
+  end
+
+  def team_membership_factory do
+    %Plausible.Teams.Membership{
+      user: build(:user),
+      role: :viewer
+    }
+  end
+
+  def guest_membership_factory do
+    %Plausible.Teams.GuestMembership{
+      team_membership: build(:team_membership, role: :guest)
+    }
+  end
+
+  def team_invitation_factory do
+    %Plausible.Teams.Invitation{
+      invitation_id: Nanoid.generate(),
+      email: sequence(:email, &"email-#{&1}@example.com"),
+      role: :admin
+    }
+  end
+
+  def guest_invitation_factory do
+    %Plausible.Teams.GuestInvitation{
+      invitation_id: Nanoid.generate(),
+      role: :editor,
+      team_invitation: build(:team_invitation, role: :guest)
+    }
+  end
+
+  def site_transfer_factory do
+    %Plausible.Teams.SiteTransfer{
+      transfer_id: Nanoid.generate(),
+      email: sequence(:email, &"email-#{&1}@example.com")
+    }
+  end
+
   def user_factory(attrs) do
     pw = Map.get(attrs, :password, "password")
 
@@ -10,7 +55,6 @@ defmodule Plausible.Factory do
       name: "Jane Smith",
       email: sequence(:email, &"email-#{&1}@example.com"),
       password_hash: Plausible.Auth.Password.hash(pw),
-      trial_expiry_date: Timex.today() |> Timex.shift(days: 30),
       email_verified: true
     }
 
@@ -18,21 +62,22 @@ defmodule Plausible.Factory do
   end
 
   def spike_notification_factory do
-    %Plausible.Site.SpikeNotification{
-      threshold: 10
+    %Plausible.Site.TrafficChangeNotification{
+      threshold: 10,
+      type: :spike
+    }
+  end
+
+  def drop_notification_factory do
+    %Plausible.Site.TrafficChangeNotification{
+      threshold: 1,
+      type: :drop
     }
   end
 
   def site_factory(attrs) do
     # The é exercises unicode support in domain names
     domain = sequence(:domain, &"é-#{&1}.example.com")
-
-    defined_memberships? =
-      Map.has_key?(attrs, :memberships) ||
-        Map.has_key?(attrs, :members) ||
-        Map.has_key?(attrs, :owner)
-
-    attrs = if defined_memberships?, do: attrs, else: Map.put_new(attrs, :members, [build(:user)])
 
     site = %Plausible.Site{
       native_stats_start_at: ~N[2000-01-01 00:00:00],
@@ -43,10 +88,17 @@ defmodule Plausible.Factory do
     merge_attributes(site, attrs)
   end
 
-  def site_membership_factory do
-    %Plausible.Site.Membership{
-      user: build(:user),
-      role: :viewer
+  def site_import_factory do
+    today = Date.utc_today()
+
+    %Plausible.Imported.SiteImport{
+      site: build(:site),
+      imported_by: build(:user),
+      start_date: Date.add(today, -200),
+      end_date: today,
+      source: :universal_analytics,
+      status: :completed,
+      legacy: false
     }
   end
 
@@ -68,19 +120,22 @@ defmodule Plausible.Factory do
     }
   end
 
-  def pageview_factory do
-    struct!(
-      event_factory(),
-      %{
-        name: "pageview"
-      }
-    )
+  def pageview_factory(attrs) do
+    Map.put(event_factory(attrs), :name, "pageview")
   end
 
-  def event_factory do
+  def pageleave_factory(attrs) do
+    Map.put(event_factory(attrs), :name, "pageleave")
+  end
+
+  def event_factory(attrs) do
+    if Map.get(attrs, :acquisition_channel) do
+      raise "Acquisition channel cannot be written directly since it's a materialized column."
+    end
+
     hostname = sequence(:domain, &"example-#{&1}.com")
 
-    %Plausible.ClickhouseEventV2{
+    event = %Plausible.ClickhouseEventV2{
       hostname: hostname,
       site_id: Enum.random(1000..10_000),
       pathname: "/",
@@ -88,10 +143,38 @@ defmodule Plausible.Factory do
       user_id: SipHash.hash!(hash_key(), Ecto.UUID.generate()),
       session_id: SipHash.hash!(hash_key(), Ecto.UUID.generate())
     }
+
+    event
+    |> merge_attributes(attrs)
+    |> evaluate_lazy_attributes()
   end
 
-  def goal_factory do
-    %Plausible.Goal{}
+  def goal_factory(attrs) do
+    display_name_provided? = Map.has_key?(attrs, :display_name)
+
+    attrs =
+      case {attrs, display_name_provided?} do
+        {%{page_path: path}, false} when is_binary(path) ->
+          Map.put(attrs, :display_name, "Visit " <> path)
+
+        {%{page_path: path}, false} when is_function(path, 0) ->
+          attrs
+          |> Map.put(:display_name, "Visit " <> path.())
+          |> Map.put(:page_path, path.())
+
+        {%{event_name: event_name}, false} when is_binary(event_name) ->
+          Map.put(attrs, :display_name, event_name)
+
+        {%{event_name: event_name}, false} when is_function(event_name, 0) ->
+          attrs
+          |> Map.put(:display_name, event_name.())
+          |> Map.put(:event_name, event_name.())
+
+        _ ->
+          attrs
+      end
+
+    merge_attributes(%Plausible.Goal{}, attrs)
   end
 
   def subscription_factory do
@@ -148,14 +231,6 @@ defmodule Plausible.Factory do
     %Plausible.Site.SharedLink{
       name: "Link name",
       slug: Nanoid.generate()
-    }
-  end
-
-  def invitation_factory do
-    %Plausible.Auth.Invitation{
-      invitation_id: Nanoid.generate(),
-      email: sequence(:email, &"email-#{&1}@example.com"),
-      role: :admin
     }
   end
 
@@ -228,6 +303,17 @@ defmodule Plausible.Factory do
     }
   end
 
+  def imported_custom_events_factory do
+    %{
+      table: "imported_custom_events",
+      date: Timex.today(),
+      name: "",
+      link_url: "",
+      visitors: 1,
+      events: 1
+    }
+  end
+
   def imported_locations_factory do
     %{
       table: "imported_locations",
@@ -283,6 +369,18 @@ defmodule Plausible.Factory do
       inet: Plausible.TestUtils.random_ip(),
       description: "Test IP Rule",
       added_by: "Mr Seed <user@plausible.test>"
+    }
+  end
+
+  def country_rule_factory do
+    %Plausible.Shield.CountryRule{
+      added_by: "Mr Seed <user@plausible.test>"
+    }
+  end
+
+  def segment_factory do
+    %Plausible.Segment{
+      segment_data: %{"filters" => [["is", "visit:entry_page", ["/blog"]]]}
     }
   end
 

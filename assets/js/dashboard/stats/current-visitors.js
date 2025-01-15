@@ -1,58 +1,81 @@
-import React from 'react';
-import { Link } from 'react-router-dom'
+/** @format */
+
+import React, { useCallback, useEffect, useState } from 'react'
+import { AppNavigationLink } from '../navigation/use-app-navigate'
 import * as api from '../api'
-import * as url from '../util/url'
-import { appliedFilters } from '../query';
-import { Tooltip } from '../util/tooltip';
-import { SecondsSinceLastLoad } from '../util/seconds-since-last-load';
+import { Tooltip } from '../util/tooltip'
+import { SecondsSinceLastLoad } from '../util/seconds-since-last-load'
+import { useQueryContext } from '../query-context'
+import { useSiteContext } from '../site-context'
+import { useLastLoadContext } from '../last-load-context'
 
-export default class CurrentVisitors extends React.Component {
-  constructor(props) {
-    super(props)
-    this.state = {currentVisitors: null}
-    this.updateCount = this.updateCount.bind(this)
-  }
+export default function CurrentVisitors({ tooltipBoundary }) {
+  const { query } = useQueryContext()
+  const lastLoadTimestamp = useLastLoadContext()
+  const site = useSiteContext()
+  const [currentVisitors, setCurrentVisitors] = useState(null)
 
-  componentDidMount() {
-    this.updateCount()
-    document.addEventListener('tick', this.updateCount)
-  }
+  const updateCount = useCallback(() => {
+    api
+      .get(`/api/stats/${encodeURIComponent(site.domain)}/current-visitors`)
+      .then((res) => setCurrentVisitors(res))
+  }, [site.domain])
 
-  componentWillUnmount() {
-    document.removeEventListener('tick', this.updateCount)
-  }
+  useEffect(() => {
+    document.addEventListener('tick', updateCount)
 
-  updateCount() {
-    return api.get(`/api/stats/${encodeURIComponent(this.props.site.domain)}/current-visitors`)
-      .then((res) => this.setState({currentVisitors: res}))
-  }
-
-  tooltipInfo() {
-    return (
-      <div>
-        <p className="whitespace-nowrap text-small">Last updated <SecondsSinceLastLoad lastLoadTimestamp={this.props.lastLoadTimestamp} />s ago</p>
-        <p className="whitespace-nowrap font-normal text-xs">Click to view realtime dashboard</p>
-      </div>
-    )
-  }
-
-  render() {
-    if (appliedFilters(this.props.query).length >= 1) { return null }
-    const { currentVisitors } = this.state;
-
-    if (currentVisitors !== null) {
-      return (
-        <Tooltip info={this.tooltipInfo()} boundary={this.props.tooltipBoundary}>
-          <Link to={url.setQuery('period', 'realtime')} className="block ml-1 md:ml-2 mr-auto text-xs md:text-sm font-bold text-gray-500 dark:text-gray-300">
-            <svg className="inline w-2 mr-1 md:mr-2 text-green-500 fill-current" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="8" cy="8" r="8" />
-            </svg>
-            {currentVisitors} <span className="hidden sm:inline-block">current visitor{currentVisitors === 1 ? '' : 's'}</span>
-          </Link>
-        </Tooltip>
-      )
+    return () => {
+      document.removeEventListener('tick', updateCount)
     }
+  }, [updateCount])
 
+  useEffect(() => {
+    updateCount()
+  }, [query, updateCount])
+
+  if (
+    site.flags.saved_segments
+      ? currentVisitors !== null
+      : currentVisitors !== null && query.filters.length === 0
+  ) {
+    return (
+      <Tooltip
+        info={
+          <div>
+            <p className="whitespace-nowrap text-small">
+              Last updated{' '}
+              <SecondsSinceLastLoad lastLoadTimestamp={lastLoadTimestamp} />s
+              ago
+            </p>
+            <p className="whitespace-nowrap font-normal text-xs">
+              Click to view realtime dashboard
+            </p>
+          </div>
+        }
+        boundary={tooltipBoundary}
+      >
+        <AppNavigationLink
+          search={(prev) => ({ ...prev, period: 'realtime' })}
+          className="h-9 flex items-center ml-1 mr-auto text-xs md:text-sm font-bold text-gray-500 dark:text-gray-300"
+        >
+          <svg
+            className="inline-block w-2 mr-1 text-green-500 fill-current"
+            viewBox="0 0 16 16"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle cx="8" cy="8" r="8" />
+          </svg>
+          <div className="inline-block">
+            {currentVisitors}
+            <span className="hidden lg:inline">
+              {' '}
+              current visitor{currentVisitors === 1 ? '' : 's'}
+            </span>
+          </div>
+        </AppNavigationLink>
+      </Tooltip>
+    )
+  } else {
     return null
   }
 }

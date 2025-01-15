@@ -1,0 +1,76 @@
+<.form
+  :let={f}
+  for={@conn}
+  class="max-w-md w-full mx-auto bg-white dark:bg-gray-800 shadow-md rounded px-8 pt-6 pb-8 mb-4 mt-8"
+  onsubmit="confirmButton.disabled = true; return true;"
+  action={Routes.google_analytics_path(@conn, :import, @site.domain)}
+>
+  <h2 class="text-xl font-black dark:text-gray-100">Import from Google Analytics</h2>
+
+  <.input type="hidden" field={f[:access_token]} />
+  <.input type="hidden" field={f[:refresh_token]} />
+  <.input type="hidden" field={f[:expires_at]} />
+
+  <div class="mt-6 text-sm text-gray-500 dark:text-gray-200">
+    Stats from this property and time period will be imported from
+    your Google Analytics account to your Plausible dashboard
+  </div>
+
+  <div class="mt-6">
+    <.label for={f[:property].id}>Google Analytics property</.label>
+    <span class="block w-full text-base dark:text-gray-100 sm:text-sm dark:bg-gray-800">
+      {@selected_property_name}
+    </span>
+    <.input type="hidden" value={@selected_property} field={f[:property]} readonly="true" />
+  </div>
+  <div class="flex justify-between mt-3">
+    <div class="w-36">
+      <.label for={f[:start_date].id}>From</.label>
+      <span class="block w-full text-base dark:text-gray-100 sm:text-sm dark:bg-gray-800">
+        {PlausibleWeb.EmailView.date_format(@start_date)}
+      </span>
+      <.input type="hidden" value={@start_date} field={f[:start_date]} readonly="true" />
+    </div>
+    <div class="align-middle pt-4 dark:text-gray-100">&rarr;</div>
+    <div class="w-36">
+      <.label for={f[:end_date].id}>To</.label>
+      <span class="block w-full text-base dark:text-gray-100 sm:text-sm dark:bg-gray-800">
+        {PlausibleWeb.EmailView.date_format(@end_date)}
+      </span>
+      <.input type="hidden" value={@end_date} field={f[:end_date]} readonly="true" />
+    </div>
+  </div>
+
+  <div class="mt-6 flex flex-col-reverse sm:flex-row justify-between items-center">
+    <p class="text-sm mt-4 sm:mt-0 dark:text-gray-100">
+      <a
+        href={
+          Routes.google_analytics_path(@conn, :property, @site.domain,
+            property: @selected_property,
+            access_token: @access_token,
+            refresh_token: @refresh_token,
+            expires_at: @expires_at
+          )
+        }
+        class="underline text-indigo-600"
+      >
+        Go back
+      </a>
+    </p>
+
+    <.button
+      type="submit"
+      name="confirmButton"
+      class="button sm:w-auto w-full [&>span.label-enabled]:block [&>span.label-disabled]:hidden [&[disabled]>span.label-enabled]:hidden [&[disabled]>span.label-disabled]:block"
+    >
+      <span class="label-enabled pointer-events-none">
+        Confirm import
+      </span>
+
+      <span class="label-disabled">
+        <.spinner class="inline-block h-5 w-5 mr-2 text-white dark:text-gray-400" />
+        Starting import...
+      </span>
+    </.button>
+  </div>
+</.form>

@@ -18,7 +18,7 @@ defmodule PlausibleWeb.Live.SentryContext do
     end
   end
 
-  def on_mount(:default, _params, session, socket) do
+  def on_mount(:default, _params, _session, socket) do
     if Phoenix.LiveView.connected?(socket) do
       peer = Phoenix.LiveView.get_connect_info(socket, :peer_data)
       uri = Phoenix.LiveView.get_connect_info(socket, :uri)
@@ -26,15 +26,9 @@ defmodule PlausibleWeb.Live.SentryContext do
       user_agent =
         Phoenix.LiveView.get_connect_info(socket, :user_agent)
 
-      socket_host =
-        case socket.host_uri do
-          :not_mounted_at_router -> :not_mounted_at_router
-          %URI{host: host} -> host
-        end
-
       request_context =
         %{
-          host: socket_host,
+          url: socket.host_uri,
           env: %{
             "REMOTE_ADDR" => get_ip(peer),
             "REMOTE_PORT" => peer && peer.port,
@@ -55,11 +49,9 @@ defmodule PlausibleWeb.Live.SentryContext do
 
       Sentry.Context.set_request_context(request_context)
 
-      user_id = session["current_user_id"]
-
-      if user_id do
+      if current_user = socket.assigns[:current_user] do
         Sentry.Context.set_user_context(%{
-          id: user_id
+          id: current_user.id
         })
       end
     end

@@ -4,19 +4,18 @@ defmodule PlausibleWeb.Live.PropsSettings do
   """
 
   use PlausibleWeb, :live_view
-  use Phoenix.HTML
 
   alias PlausibleWeb.Live.Components.ComboBox
 
-  def mount(
-        _params,
-        %{"site_id" => site_id, "domain" => domain, "current_user_id" => user_id},
-        socket
-      ) do
+  def mount(_params, %{"site_id" => site_id, "domain" => domain}, socket) do
     socket =
       socket
-      |> assign_new(:site, fn ->
-        Plausible.Sites.get_for_user!(user_id, domain, [:owner, :admin, :super_admin])
+      |> assign_new(:site, fn %{current_user: current_user} ->
+        Plausible.Sites.get_for_user!(current_user, domain, [
+          :owner,
+          :admin,
+          :super_admin
+        ])
       end)
       |> assign_new(:all_props, fn %{site: site} ->
         site.allowed_event_props || []
@@ -27,9 +26,9 @@ defmodule PlausibleWeb.Live.PropsSettings do
 
     {:ok,
      assign(socket,
+       site_team: socket.assigns.site.team,
        site_id: site_id,
        domain: domain,
-       current_user_id: user_id,
        add_prop?: false,
        filter_text: ""
      )}
@@ -40,17 +39,16 @@ defmodule PlausibleWeb.Live.PropsSettings do
     <section id="props-settings-main">
       <.flash_messages flash={@flash} />
       <%= if @add_prop? do %>
-        <%= live_render(
+        {live_render(
           @socket,
           PlausibleWeb.Live.PropsSettings.Form,
           id: "props-form",
           session: %{
-            "current_user_id" => @current_user_id,
             "domain" => @domain,
             "site_id" => @site_id,
             "rendered_by" => self()
           }
-        ) %>
+        )}
       <% end %>
 
       <.live_component

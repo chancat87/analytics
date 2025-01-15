@@ -3,8 +3,8 @@ defmodule Plausible.Site do
   Site schema
   """
   use Ecto.Schema
+  use Plausible
   import Ecto.Changeset
-  alias Plausible.Auth.User
   alias Plausible.Site.GoogleAuth
 
   @type t() :: %__MODULE__{}
@@ -29,19 +29,25 @@ defmodule Plausible.Site do
     field :domain_changed_from, :string
     field :domain_changed_at, :naive_datetime
 
+    # NOTE: needed by `SiteImports` data migration script
     embeds_one :imported_data, Plausible.Site.ImportedData, on_replace: :update
 
-    many_to_many :members, User, join_through: Plausible.Site.Membership
-    has_many :memberships, Plausible.Site.Membership
-    has_many :invitations, Plausible.Auth.Invitation
+    # NOTE: new teams relations
+    belongs_to :team, Plausible.Teams.Team
+    has_many :guest_memberships, Plausible.Teams.GuestMembership
+    has_many :guest_invitations, Plausible.Teams.GuestInvitation
+
+    embeds_one :installation_meta, Plausible.Site.InstallationMeta,
+      on_replace: :update,
+      defaults_to_struct: true
+
     has_many :goals, Plausible.Goal, preload_order: [desc: :id]
     has_many :revenue_goals, Plausible.Goal, where: [currency: {:not, nil}]
     has_one :google_auth, GoogleAuth
     has_one :weekly_report, Plausible.Site.WeeklyReport
     has_one :monthly_report, Plausible.Site.MonthlyReport
-    has_one :spike_notification, Plausible.Site.SpikeNotification
-    has_one :ownership, Plausible.Site.Membership, where: [role: :owner]
-    has_one :owner, through: [:ownership, :user]
+    has_one :ownership, through: [:team, :ownership]
+    has_one :owner, through: [:team, :owner]
 
     # If `from_cache?` is set, the struct might be incomplete - see `Plausible.Site.Cache`.
     # Use `Plausible.Repo.reload!(cached_site)` to pre-fill missing fields if
@@ -52,6 +58,8 @@ defmodule Plausible.Site do
     # user's membership state. Currently it can be either "invitation",
     # "pinned_site" or "site", where invitations are first.
     field :entry_type, :string, virtual: true
+    field :memberships, {:array, :map}, virtual: true
+    field :invitations, {:array, :map}, virtual: true
     field :pinned_at, :naive_datetime, virtual: true
 
     # Used for caching imports data for the duration of the whole request
@@ -59,17 +67,29 @@ defmodule Plausible.Site do
     # `site` in `assigns`.
     field :import_data_loaded, :boolean, default: false, virtual: true
     field :earliest_import_start_date, :date, virtual: true
-    field :earliest_import_end_date, :date, virtual: true
+    field :latest_import_end_date, :date, virtual: true
     field :complete_import_ids, {:array, :integer}, default: [], virtual: true
 
     timestamps()
   end
 
+  def new_for_team(team, params) do
+    params
+    |> new()
+    |> put_assoc(:team, team)
+  end
+
   def new(params), do: changeset(%__MODULE__{}, params)
 
-  @domain_unique_error """
-  This domain cannot be registered. Perhaps one of your colleagues registered it? If that's not the case, please contact support@plausible.io
-  """
+  on_ee do
+    @domain_unique_error """
+    This domain cannot be registered. Perhaps one of your colleagues registered it? If that's not the case, please contact support@plausible.io
+    """
+  else
+    @domain_unique_error """
+    This domain cannot be registered. Perhaps one of your colleagues registered it?
+    """
+  end
 
   def changeset(site, attrs \\ %{}) do
     site
@@ -108,7 +128,7 @@ defmodule Plausible.Site do
     |> cast(attrs, [
       :timezone,
       :public,
-      :stats_start_date,
+      :native_stats_start_at,
       :ingest_rate_limit_threshold,
       :ingest_rate_limit_scale_seconds
     ])
@@ -151,31 +171,6 @@ defmodule Plausible.Site do
 
   def set_native_stats_start_at(site, val) do
     change(site, native_stats_start_at: val)
-  end
-
-  def start_import(site, start_date, end_date, imported_source, status \\ "importing") do
-    change(site,
-      imported_data: %{
-        start_date: start_date,
-        end_date: end_date,
-        source: imported_source,
-        status: status
-      }
-    )
-  end
-
-  def import_success(site) do
-    change(site,
-      imported_data: %{status: "ok"}
-    )
-  end
-
-  def import_failure(site) do
-    change(site, imported_data: %{status: "error"})
-  end
-
-  def remove_imported_data(site) do
-    change(site, imported_data: nil)
   end
 
   defp clean_domain(changeset) do

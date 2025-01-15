@@ -1,0 +1,36 @@
+[
+  {
+    "status": 200,
+    "url": "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Adummy.test/searchAnalytics/query",
+    "method": "post",
+    "request_body": {
+      "dimensionFilterGroups": [],
+      "dimensions": [
+        "query"
+      ],
+      "endDate": "2022-01-05",
+      "rowLimit": 5,
+      "startRow": 0,
+      "startDate": "2022-01-01"
+    },
+    "response_body": {
+      "responseAggregationType": "auto",
+      "rows": [
+        {
+          "clicks": 25,
+          "ctr": 0.3679,
+          "impressions": 50,
+          "keys": ["keyword1"],
+          "position": 2.2312312
+        },
+        {
+          "clicks": 15,
+          "ctr": 0.5,
+          "impressions": 25,
+          "keys": ["keyword3"],
+          "position": 4.0
+        }
+      ]
+    }
+  }
+]

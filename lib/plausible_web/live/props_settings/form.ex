@@ -10,23 +10,29 @@ defmodule PlausibleWeb.Live.PropsSettings.Form do
         _params,
         %{
           "site_id" => _site_id,
-          "current_user_id" => user_id,
           "domain" => domain,
           "rendered_by" => pid
         },
         socket
       ) do
-    site = Plausible.Sites.get_for_user!(user_id, domain, [:owner, :admin, :super_admin])
-
-    form = new_form(site)
+    socket =
+      socket
+      |> assign_new(:site, fn %{current_user: current_user} ->
+        Plausible.Sites.get_for_user!(current_user, domain, [
+          :owner,
+          :admin,
+          :super_admin
+        ])
+      end)
+      |> assign_new(:form, fn %{site: site} ->
+        new_form(site)
+      end)
 
     {:ok,
      assign(socket,
-       form: form,
        domain: domain,
        rendered_by: pid,
-       prop_key_options_count: 0,
-       site: site
+       prop_key_options_count: 0
      )}
   end
 
@@ -47,9 +53,9 @@ defmodule PlausibleWeb.Live.PropsSettings.Form do
           phx-submit="allow-prop"
           phx-click-away="cancel-allow-prop"
         >
-          <h2 class="text-xl font-black dark:text-gray-100">Add Property for <%= @domain %></h2>
+          <.title>Add Property for {@domain}</.title>
 
-          <div class="py-2">
+          <div class="mt-6">
             <.label for="prop_input">
               Property
             </.label>
@@ -83,25 +89,23 @@ defmodule PlausibleWeb.Live.PropsSettings.Form do
             />
 
             <.error :for={{msg, opts} <- f[:allowed_event_props].errors}>
-              <%= Enum.reduce(opts, msg, fn {key, value}, acc ->
+              {Enum.reduce(opts, msg, fn {key, value}, acc ->
                 String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
-              end) %>
+              end)}
             </.error>
           </div>
 
-          <div class="py-4">
-            <PlausibleWeb.Components.Generic.button type="submit" class="w-full">
-              Add Property →
-            </PlausibleWeb.Components.Generic.button>
-          </div>
+          <.button type="submit" class="w-full">
+            Add Property →
+          </.button>
 
           <button
             :if={@prop_key_options_count > 0}
             title="Use this to add any existing properties from your past events into your settings. This allows you to set up properties without having to manually enter each item."
-            class="mt-2 text-sm hover:underline text-indigo-600 dark:text-indigo-400 text-left"
+            class="mt-4 text-sm hover:underline text-indigo-600 dark:text-indigo-400 text-left"
             phx-click="allow-existing-props"
           >
-            Already sending custom properties? Click to add <%= @prop_key_options_count %> existing properties we found.
+            Already sending custom properties? Click to add {@prop_key_options_count} existing properties we found.
           </button>
         </.form>
       </div>

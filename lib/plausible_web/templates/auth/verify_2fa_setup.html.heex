@@ -1,38 +1,36 @@
-<div class="w-full max-w-3xl mt-4 mx-auto flex">
-  <div class="w-full max-w-lg mx-auto bg-white dark:bg-gray-800 shadow-md rounded px-8 py-6 mb-4 mt-8">
-    <h2 class="text-xl font-black dark:text-gray-100">
-      Setup Two-Factor Authentication
-    </h2>
+<.focus_box>
+  <:title>
+    Setup Two-Factor Authentication
+  </:title>
 
-    <div class="text-sm mt-2 text-gray-500 dark:text-gray-200 leading-tight">
-      <%= form_for @conn.params, Routes.auth_path(@conn, :verify_2fa_setup), [
-        id: "verify-2fa-form",
-        onsubmit: "document.getElementById('verify-button').disabled = true"
-      ], fn f -> %>
-        Enter the code from your authenticator application before it expires or wait for a new one.
-        <PlausibleWeb.Components.TwoFactor.verify_2fa_input form={f} field={:code} class="mt-6" />
-      <% end %>
+  <:subtitle>
+    Enter the code from your authenticator application before it expires or wait for a new one.
+  </:subtitle>
 
-      <div class="mt-6 flex flex-col">
-        <p class="text-sm">
-          Changed your mind?
-          <a
-            href={Routes.auth_path(@conn, :user_settings) <> "#setup-2fa"}
-            class="underline text-indigo-600"
-          >
-            Go back to Settings
-          </a>
-        </p>
+  <:footer>
+    <.focus_list>
+      <:item>
+        Changed your mind?
+        <.styled_link href={Routes.settings_path(@conn, :security) <> "#update-2fa"}>
+          Go back to Settings
+        </.styled_link>
+      </:item>
+      <:item>
+        Having trouble?
+        <.styled_link method="post" href={Routes.auth_path(@conn, :initiate_2fa_setup)}>
+          Start over
+        </.styled_link>
+      </:item>
+    </.focus_list>
+  </:footer>
 
-        <p class="text-sm">
-          <%= form_for @conn.params, Routes.auth_path(@conn, :initiate_2fa_setup), [id: "start-over-form"], fn _f -> %>
-            Having trouble?
-            <button class="underline text-indigo-600">
-              Start over
-            </button>
-          <% end %>
-        </p>
-      </div>
-    </div>
-  </div>
-</div>
+  <.form
+    :let={f}
+    for={@conn.params}
+    action={Routes.auth_path(@conn, :verify_2fa_setup)}
+    id="verify-2fa-form"
+    onsubmit="document.getElementById('verify-button').disabled = true"
+  >
+    <PlausibleWeb.Components.TwoFactor.verify_2fa_input form={f} field={:code} class="mt-6" />
+  </.form>
+</.focus_box>

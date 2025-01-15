@@ -1,16 +1,16 @@
 defmodule PlausibleWeb.Components.Billing.PlanBox do
   @moduledoc false
 
-  use Phoenix.Component
+  use PlausibleWeb, :component
+
   require Plausible.Billing.Subscription.Status
   alias PlausibleWeb.Components.Billing.{PlanBenefits, Notice}
   alias Plausible.Billing.{Plan, Quota, Subscription}
-  alias PlausibleWeb.Router.Helpers, as: Routes
 
   def standard(assigns) do
     highlight =
       cond do
-        assigns.owned -> "Current"
+        assigns.owned && assigns.recommended -> "Current"
         assigns.recommended -> "Recommended"
         true -> nil
       end
@@ -32,7 +32,7 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
           !@highlight && "text-gray-900 dark:text-gray-100",
           @highlight && "text-indigo-600 dark:text-indigo-300"
         ]}>
-          <%= String.capitalize(to_string(@kind)) %>
+          {String.capitalize(to_string(@kind))}
         </h3>
         <.pill :if={@highlight} text={@highlight} />
       </div>
@@ -57,9 +57,28 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
     ~H"""
     <div
       id="enterprise-plan-box"
-      class="rounded-3xl px-6 sm:px-8 py-4 sm:py-6 bg-gray-900 shadow-xl dark:bg-gray-800 dark:ring-gray-600"
+      class={[
+        "rounded-3xl px-6 sm:px-8 py-4 sm:py-6 bg-gray-900 shadow-xl dark:bg-gray-800",
+        !@recommended && "dark:ring-gray-600",
+        @recommended && "ring-4 ring-indigo-500 dark:ring-2 dark:ring-indigo-300"
+      ]}
     >
-      <h3 class="text-lg font-semibold leading-8 text-white dark:text-gray-100">Enterprise</h3>
+      <div class="flex items-center justify-between gap-x-4">
+        <h3 class={[
+          "text-lg font-semibold leading-8",
+          !@recommended && "text-white dark:text-gray-100",
+          @recommended && "text-indigo-400 dark:text-indigo-300"
+        ]}>
+          Enterprise
+        </h3>
+        <span
+          :if={@recommended}
+          id="enterprise-highlight-pill"
+          class="rounded-full ring-1 ring-indigo-500 px-2.5 py-1 text-xs font-semibold leading-5 text-indigo-400 dark:text-indigo-300 dark:ring-1 dark:ring-indigo-300/50"
+        >
+          Recommended
+        </span>
+      </div>
       <p class="mt-6 flex items-baseline gap-x-1">
         <span class="text-4xl font-bold tracking-tight text-white dark:text-gray-100">
           Custom
@@ -79,7 +98,7 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
         id="highlight-pill"
         class="rounded-full bg-indigo-600/10 px-2.5 py-1 text-xs font-semibold leading-5 text-indigo-600 dark:text-indigo-300 dark:ring-1 dark:ring-indigo-300/50"
       >
-        <%= @text %>
+        {@text}
       </p>
     </div>
     """
@@ -123,7 +142,7 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
       id={"#{@kind}-price-tag-amount"}
       class="text-4xl font-bold tracking-tight text-gray-900 dark:text-gray-100"
     >
-      <%= @plan_to_render.monthly_cost |> Plausible.Billing.format_price() %>
+      {@plan_to_render.monthly_cost |> Plausible.Billing.format_price()}
     </span>
     <span
       id={"#{@kind}-price-tag-interval"}
@@ -137,13 +156,13 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
   defp price_tag(%{selected_interval: :yearly} = assigns) do
     ~H"""
     <span class="text-2xl font-bold w-max tracking-tight line-through text-gray-500 dark:text-gray-600 mr-1">
-      <%= @plan_to_render.monthly_cost |> Money.mult!(12) |> Plausible.Billing.format_price() %>
+      {@plan_to_render.monthly_cost |> Money.mult!(12) |> Plausible.Billing.format_price()}
     </span>
     <span
       id={"#{@kind}-price-tag-amount"}
       class="text-4xl font-bold tracking-tight text-gray-900 dark:text-gray-100"
     >
-      <%= @plan_to_render.yearly_cost |> Plausible.Billing.format_price() %>
+      {@plan_to_render.yearly_cost |> Plausible.Billing.format_price()}
     </span>
     <span id={"#{@kind}-price-tag-interval"} class="text-sm font-semibold leading-6 text-gray-600">
       /year
@@ -155,7 +174,8 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
     paddle_product_id = get_paddle_product_id(assigns.plan_to_render, assigns.selected_interval)
     change_plan_link_text = change_plan_link_text(assigns)
 
-    subscription = assigns.user.subscription
+    subscription =
+      Plausible.Teams.Billing.get_subscription(assigns.my_team)
 
     billing_details_expired =
       Subscription.Status.in?(subscription, [
@@ -164,16 +184,17 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
       ])
 
     subscription_deleted = Subscription.Status.deleted?(subscription)
+    usage_check = check_usage_within_plan_limits(assigns)
 
     {checkout_disabled, disabled_message} =
       cond do
-        not assigns.eligible_for_upgrade? ->
+        not Quota.eligible_for_upgrade?(assigns.usage) ->
           {true, nil}
 
         change_plan_link_text == "Currently on this plan" && not subscription_deleted ->
           {true, nil}
 
-        assigns.available && !usage_within_plan_limits?(assigns) ->
+        usage_check != :ok ->
           {true, "Your usage exceeds this plan"}
 
         billing_details_expired ->
@@ -183,7 +204,16 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
           {false, nil}
       end
 
-    features_to_lose = assigns.usage.features -- assigns.plan_to_render.features
+    exceeded_plan_limits =
+      case usage_check do
+        {:error, {:over_plan_limits, limits}} ->
+          limits
+
+        _ ->
+          []
+      end
+
+    feature_usage_check = Quota.ensure_feature_access(assigns.usage, assigns.plan_to_render)
 
     assigns =
       assigns
@@ -191,35 +221,57 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
       |> assign(:change_plan_link_text, change_plan_link_text)
       |> assign(:checkout_disabled, checkout_disabled)
       |> assign(:disabled_message, disabled_message)
-      |> assign(:confirm_message, losing_features_message(features_to_lose))
+      |> assign(:exceeded_plan_limits, exceeded_plan_limits)
+      |> assign(:confirm_message, losing_features_message(feature_usage_check))
 
     ~H"""
-    <%= if @owned_plan && Plausible.Billing.Subscriptions.resumable?(@user.subscription) do %>
+    <%= if @owned_plan && Plausible.Billing.Subscriptions.resumable?(@my_team.subscription) do %>
       <.change_plan_link {assigns} />
     <% else %>
-      <PlausibleWeb.Components.Billing.paddle_button {assigns}>
+      <PlausibleWeb.Components.Billing.paddle_button user={@current_user} team={@my_team} {assigns}>
         Upgrade
       </PlausibleWeb.Components.Billing.paddle_button>
     <% end %>
-    <p :if={@disabled_message} class="h-0 text-center text-sm text-red-700 dark:text-red-500">
-      <%= @disabled_message %>
-    </p>
+    <.tooltip :if={@exceeded_plan_limits != [] && @disabled_message}>
+      <div class="pt-2 text-sm w-full flex items-center text-red-700 dark:text-red-500 justify-center">
+        {@disabled_message}
+        <Heroicons.information_circle class="hidden sm:block w-5 h-5 sm:ml-2" />
+      </div>
+      <:tooltip_content>
+        Your usage exceeds the following limit(s):<br /><br />
+        <p :for={limit <- @exceeded_plan_limits}>
+          {Phoenix.Naming.humanize(limit)}<br />
+        </p>
+      </:tooltip_content>
+    </.tooltip>
+    <div
+      :if={@disabled_message && @exceeded_plan_limits == []}
+      class="pt-2 text-sm w-full text-red-700 dark:text-red-500 text-center"
+    >
+      {@disabled_message}
+    </div>
     """
   end
 
-  defp usage_within_plan_limits?(%{usage: usage, user: user, plan_to_render: plan}) do
-    # At this point, the user is *not guaranteed* to have a `trial_expiry_date`,
-    # because in the past we've let users upgrade without that constraint, as
-    # well as transfer sites to those accounts. to these accounts we won't be
-    # offering an extra pageview limit allowance margin though.
-    invited_user? = is_nil(user.trial_expiry_date)
+  defp check_usage_within_plan_limits(%{available: false}) do
+    {:error, :plan_unavailable}
+  end
 
+  defp check_usage_within_plan_limits(%{
+         available: true,
+         usage: usage,
+         my_team: my_team,
+         plan_to_render: plan
+       }) do
+    # At this point, the user is *not guaranteed* to have a team,
+    # with ongoing trial.
     trial_active_or_ended_recently? =
-      not invited_user? && Timex.diff(Timex.today(), user.trial_expiry_date, :days) <= 10
+      not is_nil(my_team) and not is_nil(my_team.trial_expiry_date) and
+        Plausible.Teams.trial_days_left(my_team) >= -10
 
     limit_checking_opts =
       cond do
-        user.allow_next_upgrade_override ->
+        my_team && my_team.allow_next_upgrade_override ->
           [ignore_pageview_limit: true]
 
         trial_active_or_ended_recently? && plan.volume == "10k" ->
@@ -232,7 +284,7 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
           []
       end
 
-    Quota.ensure_within_plan_limits(usage, plan, limit_checking_opts) == :ok
+    Quota.ensure_within_plan_limits(usage, plan, limit_checking_opts)
   end
 
   defp get_paddle_product_id(%Plan{monthly_product_id: plan_id}, :monthly), do: plan_id
@@ -285,20 +337,20 @@ defmodule PlausibleWeb.Components.Billing.PlanBox do
         @checkout_disabled && "pointer-events-none bg-gray-400 dark:bg-gray-600"
       ]}
     >
-      <%= @change_plan_link_text %>
+      {@change_plan_link_text}
     </button>
     """
   end
 
-  defp losing_features_message([]), do: nil
+  defp losing_features_message(:ok), do: nil
 
-  defp losing_features_message(features_to_lose) do
+  defp losing_features_message({:error, {:unavailable_features, features}}) do
     features_list_str =
-      features_to_lose
-      |> Enum.map(& &1.display_name)
+      features
+      |> Enum.map(fn feature_mod -> feature_mod.display_name() end)
       |> PlausibleWeb.TextHelpers.pretty_join()
 
-    "This plan does not support #{features_list_str}, which you are currently using. Please note that by subscribing to this plan you will lose access to #{if length(features_to_lose) == 1, do: "this feature", else: "these features"}."
+    "This plan does not support #{features_list_str}, which you have been using. By subscribing to this plan, you will not have access to #{if length(features) == 1, do: "this feature", else: "these features"}."
   end
 
   defp contact_button(assigns) do

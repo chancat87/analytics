@@ -1,8 +1,8 @@
 defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
   use PlausibleWeb.ConnCase
 
-  describe "GET /api/stats/:domain/operating_systems" do
-    setup [:create_user, :log_in, :create_new_site, :add_imported_data]
+  describe "GET /api/stats/:domain/operating-systems" do
+    setup [:create_user, :log_in, :create_site, :create_legacy_site_import]
 
     test "returns operating systems by unique visitors", %{conn: conn, site: site} do
       populate_stats(site, [
@@ -13,7 +13,7 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
 
       conn = get(conn, "/api/stats/#{site.domain}/operating-systems?period=day")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{"name" => "Mac", "visitors" => 2, "percentage" => 66.7},
                %{"name" => "Android", "visitors" => 1, "percentage" => 33.3}
              ]
@@ -29,36 +29,54 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
         )
       ])
 
-      conn = get(conn, "/api/stats/#{site.domain}/operating-systems?period=day")
+      conn1 = get(conn, "/api/stats/#{site.domain}/operating-systems?period=day")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn1, 200)["results"] == [
                %{"name" => "(not set)", "visitors" => 1, "percentage" => 50},
                %{"name" => "Linux", "visitors" => 1, "percentage" => 50}
              ]
 
-      filters = Jason.encode!(%{os: "(not set)"})
+      filters = Jason.encode!([[:is, "visit:os", ["(not set)"]]])
 
-      conn =
+      conn2 =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn2, 200)["results"] == [
                %{"name" => "(not set)", "visitors" => 1, "percentage" => 100}
              ]
     end
 
+    test "select empty imported_operating_systems as (not set), merging with the native (not set)",
+         %{conn: conn, site: site} do
+      populate_stats(site, [
+        build(:pageview, user_id: 123),
+        build(:imported_operating_systems, visitors: 1),
+        build(:imported_visitors, visitors: 1)
+      ])
+
+      conn =
+        get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&with_imported=true")
+
+      assert json_response(conn, 200)["results"] == [
+               %{"name" => "(not set)", "visitors" => 2, "percentage" => 100.0}
+             ]
+    end
+
     test "calculates conversion_rate when filtering for goal", %{conn: conn, site: site} do
+      insert(:goal, site: site, event_name: "Signup")
+
       populate_stats(site, [
         build(:pageview, user_id: 1, operating_system: "Mac"),
         build(:pageview, user_id: 2, operating_system: "Mac"),
         build(:event, user_id: 1, name: "Signup")
       ])
 
-      filters = Jason.encode!(%{"goal" => "Signup"})
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
 
       conn =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "Mac",
                  "total_visitors" => 2,
@@ -93,12 +111,12 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "John Doe"}})
+      filters = Jason.encode!([[:is, "event:props:author", ["John Doe"]]])
 
       conn =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{"name" => "Mac", "visitors" => 1, "percentage" => 100}
              ]
     end
@@ -130,12 +148,12 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "!John Doe"}})
+      filters = Jason.encode!([["is_not", "event:props:author", ["John Doe"]]])
 
       conn =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{"name" => "Android", "visitors" => 1, "percentage" => 50},
                %{"name" => "Mac", "visitors" => 1, "percentage" => 50}
              ]
@@ -154,23 +172,25 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
         build(:imported_visitors, visitors: 2)
       ])
 
-      conn = get(conn, "/api/stats/#{site.domain}/operating-systems?period=day")
+      conn1 = get(conn, "/api/stats/#{site.domain}/operating-systems?period=day")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn1, 200)["results"] == [
                %{"name" => "Mac", "visitors" => 2, "percentage" => 66.7},
                %{"name" => "Android", "visitors" => 1, "percentage" => 33.3}
              ]
 
-      conn =
+      conn2 =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&with_imported=true")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn2, 200)["results"] == [
                %{"name" => "Mac", "visitors" => 3, "percentage" => 60},
                %{"name" => "Android", "visitors" => 2, "percentage" => 40}
              ]
     end
 
     test "imported data is ignored when filtering for goal", %{conn: conn, site: site} do
+      insert(:goal, site: site, event_name: "Signup")
+
       populate_stats(site, [
         build(:pageview, user_id: 1, operating_system: "Mac"),
         build(:pageview, user_id: 2, operating_system: "Mac"),
@@ -178,12 +198,12 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
         build(:event, user_id: 1, name: "Signup")
       ])
 
-      filters = Jason.encode!(%{"goal" => "Signup"})
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
 
       conn =
         get(conn, "/api/stats/#{site.domain}/operating-systems?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "Mac",
                  "total_visitors" => 2,
@@ -195,17 +215,29 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
   end
 
   describe "GET /api/stats/:domain/operating-system-versions" do
-    setup [:create_user, :log_in, :create_new_site]
+    setup [:create_user, :log_in, :create_site, :create_legacy_site_import]
 
     test "returns top OS versions by unique visitors", %{conn: conn, site: site} do
       populate_stats(site, [
-        build(:pageview, operating_system: "Mac", operating_system_version: "10.15"),
-        build(:pageview, operating_system: "Mac", operating_system_version: "10.16"),
-        build(:pageview, operating_system: "Mac", operating_system_version: "10.16"),
-        build(:pageview, operating_system: "Android", operating_system_version: "4")
+        build(:pageview,
+          operating_system: "Mac",
+          operating_system_version: "10.15"
+        ),
+        build(:pageview,
+          operating_system: "Mac",
+          operating_system_version: "10.16"
+        ),
+        build(:pageview,
+          operating_system: "Mac",
+          operating_system_version: "10.16"
+        ),
+        build(:pageview,
+          operating_system: "Android",
+          operating_system_version: "4"
+        )
       ])
 
-      filters = Jason.encode!(%{os: "Mac"})
+      filters = Jason.encode!([[:is, "visit:os", ["Mac"]]])
 
       conn =
         get(
@@ -213,9 +245,116 @@ defmodule PlausibleWeb.Api.StatsController.OperatingSystemsTest do
           "/api/stats/#{site.domain}/operating-system-versions?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
-               %{"name" => "10.16", "visitors" => 2, "percentage" => 66.7, "os" => "Mac"},
-               %{"name" => "10.15", "visitors" => 1, "percentage" => 33.3, "os" => "Mac"}
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "name" => "Mac 10.16",
+                 "visitors" => 2,
+                 "percentage" => 66.7,
+                 "os" => "Mac",
+                 "version" => "10.16"
+               },
+               %{
+                 "name" => "Mac 10.15",
+                 "visitors" => 1,
+                 "percentage" => 33.3,
+                 "os" => "Mac",
+                 "version" => "10.15"
+               }
+             ]
+    end
+
+    test "returns only version under the name key (+ additional metrics) when 'detailed' is true in params",
+         %{
+           conn: conn,
+           site: site
+         } do
+      populate_stats(site, [
+        build(:pageview, operating_system: "Mac", operating_system_version: "14")
+      ])
+
+      filters = Jason.encode!([[:is, "visit:os", ["Mac"]]])
+
+      conn =
+        get(
+          conn,
+          "/api/stats/#{site.domain}/operating-system-versions?filters=#{filters}&detailed=true"
+        )
+
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "name" => "14",
+                 "os" => "Mac",
+                 "visitors" => 1,
+                 "bounce_rate" => 100,
+                 "visit_duration" => 0,
+                 "percentage" => 100.0
+               }
+             ]
+    end
+
+    test "with imported data", %{conn: conn, site: site} do
+      populate_stats(site, [
+        build(:pageview,
+          operating_system: "Mac",
+          operating_system_version: "11",
+          timestamp: ~N[2021-01-01 00:00:00]
+        ),
+        build(:pageview,
+          operating_system: "Mac",
+          operating_system_version: "12",
+          timestamp: ~N[2021-01-01 00:00:00]
+        ),
+        build(:imported_operating_systems,
+          date: ~D[2021-01-01],
+          operating_system: "Mac",
+          operating_system_version: "11",
+          visitors: 5
+        ),
+        build(:imported_operating_systems,
+          date: ~D[2021-01-01],
+          operating_system: "Windows",
+          operating_system_version: "11",
+          visitors: 3
+        ),
+        build(:imported_operating_systems, date: ~D[2021-01-01], visitors: 10),
+        build(:imported_visitors, date: ~D[2021-01-01], visitors: 18)
+      ])
+
+      conn =
+        get(
+          conn,
+          "/api/stats/#{site.domain}/operating-system-versions?period=day&date=2021-01-01&with_imported=true"
+        )
+
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "os" => "(not set)",
+                 "name" => "(not set)",
+                 "version" => "(not set)",
+                 "visitors" => 10,
+                 "percentage" => 50.0
+               },
+               %{
+                 "os" => "Mac",
+                 "name" => "Mac 11",
+                 "version" => "11",
+                 "visitors" => 6,
+                 "percentage" => 30.0
+               },
+               %{
+                 "os" => "Windows",
+                 "name" => "Windows 11",
+                 "version" => "11",
+                 "visitors" => 3,
+                 "percentage" => 15.0
+               },
+               %{
+                 "os" => "Mac",
+                 "name" => "Mac 12",
+                 "version" => "12",
+                 "visitors" => 1,
+                 "percentage" => 5.0
+               }
              ]
     end
   end

@@ -3,16 +3,20 @@ import { Menu, Transition } from '@headlessui/react'
 import { ChevronDownIcon } from '@heroicons/react/20/solid'
 import classNames from 'classnames'
 import * as storage from '../../util/storage'
-
-import GoalConversions, { specialTitleWhenGoalFilter } from './goal-conversions'
+import ImportedQueryUnsupportedWarning from '../imported-query-unsupported-warning'
+import GoalConversions, { specialTitleWhenGoalFilter, SPECIAL_GOALS } from './goal-conversions'
 import Properties from './props'
 import { FeatureSetupNotice } from '../../components/notice'
-import { SPECIAL_GOALS } from './goal-conversions'
+import { hasGoalFilter } from '../../util/filters'
+import { useSiteContext } from '../../site-context'
+import { useQueryContext } from '../../query-context'
+import { useUserContext } from '../../user-context'
 
 /*global BUILD_EXTRA*/
 /*global require*/
 function maybeRequire() {
   if (BUILD_EXTRA) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('../../extra/funnel')
   } else {
     return { default: null }
@@ -34,18 +38,24 @@ export const sectionTitles = {
   [FUNNELS]: 'Funnels'
 }
 
-export default function Behaviours(props) {
-  const { site, query, currentUserRole } = props
-  const adminAccess = ['owner', 'admin', 'super_admin'].includes(currentUserRole)
-  const tabKey = `behavioursTab__${site.domain}`
-  const funnelKey = `behavioursTabFunnel__${site.domain}`
+export default function Behaviours({ importedDataInView }) {
+  const { query } = useQueryContext();
+  const site = useSiteContext();
+  const user = useUserContext();
+
+  const adminAccess = ['owner', 'admin', 'editor', 'super_admin'].includes(user.role)
+  const tabKey = storage.getDomainScopedStorageKey('behavioursTab', site.domain)
+  const funnelKey = storage.getDomainScopedStorageKey('behavioursTabFunnel', site.domain)
   const [enabledModes, setEnabledModes] = useState(getEnabledModes())
   const [mode, setMode] = useState(defaultMode())
+  const [loading, setLoading] = useState(true)
 
   const [funnelNames, _setFunnelNames] = useState(site.funnels.map(({ name }) => name))
   const [selectedFunnel, setSelectedFunnel] = useState(defaultSelectedFunnel())
 
   const [showingPropsForGoalFilter, setShowingPropsForGoalFilter] = useState(false)
+
+  const [skipImportedReason, setSkipImportedReason] = useState(null)
 
   const onGoalFilterClick = useCallback((e) => {
     const goalName = e.target.innerHTML
@@ -56,19 +66,24 @@ export default function Behaviours(props) {
       setShowingPropsForGoalFilter(true)
       setMode(PROPS)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    const justRemovedGoalFilter = !query.filters.goal
+    const justRemovedGoalFilter = !hasGoalFilter(query)
     if (mode === PROPS && justRemovedGoalFilter && showingPropsForGoalFilter) {
       setShowingPropsForGoalFilter(false)
       setMode(CONVERSIONS)
     }
-  }, [!!query.filters.goal])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasGoalFilter(query)])
 
   useEffect(() => {
     setMode(defaultMode())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledModes])
+
+  useEffect(() => setLoading(true), [query, mode])
 
   function disableMode(mode) {
     setEnabledModes(enabledModes.filter((m) => { return m !== mode }))
@@ -119,7 +134,7 @@ export default function Behaviours(props) {
         leaveFrom="opacity-100 scale-100"
         leaveTo="opacity-0 scale-95"
       >
-        <Menu.Items className="text-left origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
+        <Menu.Items className="text-left origin-top-right absolute right-0 mt-2 w-96 max-h-72 overflow-auto rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
           <div className="py-1">
             {funnelNames.map((funnelName) => {
               return (
@@ -169,14 +184,18 @@ export default function Behaviours(props) {
     )
   }
 
+  function afterFetchData(apiResponse) {
+    setLoading(false)
+    setSkipImportedReason(apiResponse.skip_imported_reason)
+  }
+
   function renderConversions() {
     if (site.hasGoals) {
-      return <GoalConversions site={site} query={query} onGoalFilterClick={onGoalFilterClick} />
+      return <GoalConversions onGoalFilterClick={onGoalFilterClick} afterFetchData={afterFetchData} />
     }
     else if (adminAccess) {
       return (
         <FeatureSetupNotice
-          site={site}
           feature={CONVERSIONS}
           title={'Measure how often visitors complete specific actions'}
           info={'Goals allow you to track registrations, button clicks, form completions, external link clicks, file downloads, 404 error pages and more.'}
@@ -196,20 +215,19 @@ export default function Behaviours(props) {
       return featureUnavailable()
     }
     else if (Funnel && selectedFunnel && site.funnelsAvailable) {
-      return <Funnel site={site} query={query} funnelName={selectedFunnel} />
+      return <Funnel funnelName={selectedFunnel} />
     }
     else if (Funnel && adminAccess) {
       let callToAction
-      
+
       if (site.funnelsAvailable) {
-        callToAction = {action: 'Set up funnels', link: `/${encodeURIComponent(site.domain)}/settings/funnels`}
+        callToAction = { action: 'Set up funnels', link: `/${encodeURIComponent(site.domain)}/settings/funnels` }
       } else {
-        callToAction = {action: 'Upgrade', link: '/billing/choose-plan'}
+        callToAction = { action: 'Upgrade', link: '/billing/choose-plan' }
       }
 
       return (
         <FeatureSetupNotice
-          site={site}
           feature={FUNNELS}
           title={'Follow the visitor journey from entry to conversion'}
           info={'Funnels allow you to analyze the user flow through your website, uncover possible issues, optimize your site and increase the conversion rate.'}
@@ -223,19 +241,18 @@ export default function Behaviours(props) {
 
   function renderProps() {
     if (site.hasProps && site.propsAvailable) {
-      return <Properties site={site} query={query} />
+      return <Properties afterFetchData={afterFetchData} />
     } else if (adminAccess) {
       let callToAction
 
       if (site.propsAvailable) {
-        callToAction = {action: 'Set up props', link: `/${encodeURIComponent(site.domain)}/settings/properties`}
+        callToAction = { action: 'Set up props', link: `/${encodeURIComponent(site.domain)}/settings/properties` }
       } else {
-        callToAction = {action: 'Upgrade', link: '/billing/choose-plan'}
+        callToAction = { action: 'Upgrade', link: '/billing/choose-plan' }
       }
 
       return (
         <FeatureSetupNotice
-          site={site}
           feature={PROPS}
           title={'Send custom data to create your own metrics'}
           info={'You can attach custom properties when sending a pageview or event. This allows you to create custom metrics and analyze stats we don\'t track automatically.'}
@@ -298,7 +315,7 @@ export default function Behaviours(props) {
       // If the feature is not supported by the site owner's subscription,
       // it only makes sense to display the feature tab to the owner itself
       // as only they can upgrade to make the feature available.
-      const callToActionIsMissing = !isAvailable && currentUserRole !== 'owner'
+      const callToActionIsMissing = !isAvailable &&  user.role !== 'owner'
 
       if (!isOptedOut && !callToActionIsMissing) {
         enabledModes.push(feature)
@@ -324,14 +341,27 @@ export default function Behaviours(props) {
     }
   }
 
+  function renderImportedQueryUnsupportedWarning() {
+    if (mode === CONVERSIONS) {
+      return <ImportedQueryUnsupportedWarning loading={loading} skipImportedReason={skipImportedReason} />
+    } else if (mode === PROPS) {
+      return <ImportedQueryUnsupportedWarning loading={loading} skipImportedReason={skipImportedReason} message="Imported data is unavailable in this view" />
+    } else {
+      return <ImportedQueryUnsupportedWarning altCondition={importedDataInView} message="Imported data is unavailable in this view" />
+    }
+  }
+
   if (mode) {
     return (
       <div className="items-start justify-between block w-full mt-6 md:flex">
         <div className="w-full p-4 bg-white rounded shadow-xl dark:bg-gray-825">
           <div className="flex justify-between w-full">
-            <h3 className="font-bold dark:text-gray-100">
-              {sectionTitle() + (isRealtime() ? ' (last 30min)' : '')}
-            </h3>
+            <div className="flex gap-x-1">
+              <h3 className="font-bold dark:text-gray-100">
+                {sectionTitle() + (isRealtime() ? ' (last 30min)' : '')}
+              </h3>
+              {renderImportedQueryUnsupportedWarning()}
+            </div>
             {tabs()}
           </div>
           {renderContent()}

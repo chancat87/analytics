@@ -1,49 +1,39 @@
-import numberFormatter, {durationFormatter} from '../../util/number-formatter'
+import { getFiltersByKeyPrefix, hasGoalFilter } from '../../util/filters'
+import { revenueAvailable } from '../../query'
 
-export const METRIC_MAPPING = {
-  'Unique visitors (last 30 min)': 'visitors',
-  'Pageviews (last 30 min)': 'pageviews',
-  'Unique visitors': 'visitors',
-  'Visit duration': 'visit_duration',
-  'Total pageviews': 'pageviews',
-  'Views per visit': 'views_per_visit',
-  'Total visits': 'visits',
-  'Bounce rate': 'bounce_rate',
-  'Unique conversions': 'conversions',
-  'Average revenue': 'average_revenue',
-  'Total revenue': 'total_revenue',
+export function getGraphableMetrics(query, site) {
+  const isRealtime = query.period === 'realtime'
+  const isGoalFilter = hasGoalFilter(query)
+  const isPageFilter = getFiltersByKeyPrefix(query, "page").length > 0
+
+  if (isRealtime && isGoalFilter) {
+    return ["visitors"]
+  } else if (isRealtime) {
+    return ["visitors", "pageviews"]
+  } else if (isGoalFilter && revenueAvailable(query, site)) {
+    return ["visitors", "events", "average_revenue", "total_revenue", "conversion_rate"]
+  } else if (isGoalFilter) {
+    return ["visitors", "events", "conversion_rate"]
+  } else if (isPageFilter) {
+    const pageFilterMetrics = ["visitors", "visits", "pageviews", "bounce_rate"]
+    return site.flags.scroll_depth ? [...pageFilterMetrics, "scroll_depth"] : pageFilterMetrics
+  } else {
+    return ["visitors", "visits", "pageviews", "views_per_visit", "bounce_rate", "visit_duration"]
+  }
 }
 
 export const METRIC_LABELS = {
   'visitors': 'Visitors',
   'pageviews': 'Pageviews',
+  'events': 'Total Conversions',
   'views_per_visit': 'Views per Visit',
   'visits': 'Visits',
   'bounce_rate': 'Bounce Rate',
   'visit_duration': 'Visit Duration',
   'conversions': 'Converted Visitors',
+  'conversion_rate': 'Conversion Rate',
   'average_revenue': 'Average Revenue',
   'total_revenue': 'Total Revenue',
-}
-
-export const METRIC_FORMATTER = {
-  'visitors': numberFormatter,
-  'pageviews': numberFormatter,
-  'visits': numberFormatter,
-  'views_per_visit': (number) => (number),
-  'bounce_rate': (number) => (`${number}%`),
-  'visit_duration': durationFormatter,
-  'conversions': numberFormatter,
-  'total_revenue': numberFormatter,
-  'average_revenue': numberFormatter,
-}
-
-export const LoadingState = {
-  loading: 'loading',
-  refreshing: 'refreshing',
-  loaded: 'loaded',
-  isLoadingOrRefreshing: function (state) { return [this.loading, this.refreshing].includes(state) },
-  isLoadedOrRefreshing: function (state) { return [this.loaded, this.refreshing].includes(state) }
 }
 
 const buildComparisonDataset = function(comparisonPlot) {

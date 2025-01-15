@@ -3,18 +3,20 @@ defmodule Plausible.Stats.CustomProps do
   Module for querying user defined 'custom properties'.
   """
 
-  alias Plausible.Stats.Query
+  alias Plausible.Stats.Filters
   use Plausible.ClickhouseRepo
   import Plausible.Stats.Base
 
   def fetch_prop_names(site, query) do
-    case Query.get_filter_by_prefix(query, "event:props:") do
-      {"event:props:" <> key, _} ->
+    case Filters.get_toplevel_filter(query, "event:props:") do
+      [_op, "event:props:" <> key | _rest] ->
         [key]
 
       _ ->
         from(e in base_event_query(site, query),
-          array_join: meta in fragment("meta"),
+          join: meta in fragment("meta"),
+          hints: "ARRAY",
+          on: true,
           select: meta.key,
           distinct: true
         )

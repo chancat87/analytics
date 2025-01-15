@@ -20,13 +20,13 @@ config :esbuild,
   version: "0.17.11",
   default: [
     args:
-      ~w(js/app.js js/dashboard.js js/embed.host.js js/embed.content.js --bundle --target=es2017 --loader:.js=jsx --outdir=../priv/static/js --define:BUILD_EXTRA=true),
+      ~w(js/app.js js/storybook.js js/dashboard.tsx js/embed.host.js js/embed.content.js --bundle --target=es2017 --loader:.js=jsx --outdir=../priv/static/js --define:BUILD_EXTRA=true),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => Path.expand("../deps", __DIR__)}
   ]
 
 config :tailwind,
-  version: "3.3.3",
+  version: "3.4.7",
   default: [
     args: ~w(
       --config=tailwind.config.js
@@ -34,18 +34,26 @@ config :tailwind,
       --output=../priv/static/css/app.css
     ),
     cd: Path.expand("../assets", __DIR__)
+  ],
+  storybook: [
+    args: ~w(
+    --config=tailwind.config.js
+    --input=css/storybook.css
+    --output=../priv/static/css/storybook.css
+  ),
+    cd: Path.expand("../assets", __DIR__)
   ]
 
 config :ua_inspector,
   database_path: "priv/ua_inspector",
-  remote_release: "6.2.1"
+  remote_release: "6.3.2"
 
 config :ref_inspector,
   database_path: "priv/ref_inspector"
 
 config :plausible,
   paddle_api: Plausible.Billing.PaddleApi,
-  google_api: Plausible.Google.Api
+  google_api: Plausible.Google.API
 
 config :plausible,
   # 30 minutes
@@ -72,5 +80,9 @@ config :plausible, Plausible.Ingestion.Counters, enabled: true
 config :ex_cldr,
   default_locale: "en",
   default_backend: Plausible.Cldr
+
+config :sentry,
+  enable_source_code_context: true,
+  root_source_code_path: [File.cwd!()]
 
 import_config "#{config_env()}.exs"

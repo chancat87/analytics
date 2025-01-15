@@ -3,6 +3,12 @@ const fs = require('fs')
 const path = require('path')
 const Handlebars = require("handlebars");
 const g = require("generatorics");
+const { canSkipCompile } = require("./dev-compile/can-skip-compile");
+
+if (process.env.NODE_ENV === 'dev' && canSkipCompile()) {
+  console.info('COMPILATION SKIPPED: No changes detected in tracker dependencies')
+  process.exit(0)
+}
 
 Handlebars.registerHelper('any', function (...args) {
   return args.slice(0, -1).some(Boolean)
@@ -26,7 +32,7 @@ function compilefile(input, output, templateVars = {}) {
   }
 }
 
-const base_variants = ["hash", "outbound-links", "exclusions", "compat", "local", "manual", "file-downloads", "pageview-props", "tagged-events", "revenue"]
+const base_variants = ["hash", "outbound-links", "exclusions", "compat", "local", "manual", "file-downloads", "pageview-props", "tagged-events", "revenue", "pageleave"]
 const variants = [...g.clone.powerSet(base_variants)].filter(a => a.length > 0).map(a => a.sort());
 
 compilefile(relPath('src/plausible.js'), relPath('../priv/tracker/js/plausible.js'))

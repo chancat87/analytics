@@ -3,16 +3,18 @@ defmodule Plausible.Stats.Interval do
   Collection of functions to work with intervals.
 
   The interval of a query defines the granularity of the data. You can think of
-  it as a `GROUP BY` clause. Possible values are `minute`, `hour`, `date`,
+  it as a `GROUP BY` clause. Possible values are `minute`, `hour`, `day`,
   `week`, and `month`.
   """
+
+  alias Plausible.Stats.DateTimeRange
 
   @type t() :: String.t()
   @type(opt() :: {:site, Plausible.Site.t()} | {:from, Date.t()}, {:to, Date.t()})
   @type opts :: list(opt())
   @typep period() :: String.t()
 
-  @intervals ~w(minute hour date week month)
+  @intervals ~w(minute hour day week month)
   @spec list() :: [t()]
   def list, do: @intervals
 
@@ -27,24 +29,24 @@ defmodule Plausible.Stats.Interval do
   """
   def default_for_period(period) do
     case period do
-      "realtime" -> "minute"
+      period when period in ["realtime", "30m"] -> "minute"
       "day" -> "hour"
-      period when period in ["custom", "7d", "30d", "month"] -> "date"
+      period when period in ["custom", "7d", "30d", "month"] -> "day"
       period when period in ["6mo", "12mo", "year"] -> "month"
     end
   end
 
-  @spec default_for_date_range(Date.Range.t()) :: t()
+  @spec default_for_date_range(DateTimeRange.t()) :: t()
   @doc """
-  Returns the suggested interval for the given `Date.Range` struct.
+  Returns the suggested interval for the given `DateTimeRange` struct.
   """
-  def default_for_date_range(%Date.Range{first: first, last: last}) do
+  def default_for_date_range(%DateTimeRange{first: first, last: last}) do
     cond do
       Timex.diff(last, first, :months) > 0 ->
         "month"
 
-      Timex.diff(last, first, :days) > 0 ->
-        "date"
+      DateTime.diff(last, first, :day) > 0 ->
+        "day"
 
       true ->
         "hour"
@@ -54,14 +56,14 @@ defmodule Plausible.Stats.Interval do
   @valid_by_period %{
     "realtime" => ["minute"],
     "day" => ["minute", "hour"],
-    "7d" => ["hour", "date"],
-    "month" => ["date", "week"],
-    "30d" => ["date", "week"],
-    "6mo" => ["date", "week", "month"],
-    "12mo" => ["date", "week", "month"],
-    "year" => ["date", "week", "month"],
-    "custom" => ["date", "week", "month"],
-    "all" => ["date", "week", "month"]
+    "7d" => ["hour", "day"],
+    "month" => ["day", "week"],
+    "30d" => ["day", "week"],
+    "6mo" => ["day", "week", "month"],
+    "12mo" => ["day", "week", "month"],
+    "year" => ["day", "week", "month"],
+    "custom" => ["day", "week", "month"],
+    "all" => ["day", "week", "month"]
   }
 
   @spec valid_by_period(opts()) :: map()

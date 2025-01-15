@@ -1,0 +1,61 @@
+<.focus_box>
+  <:title>
+    {Phoenix.Flash.get(@flash, :login_title) || "Enter your account credentials"}
+  </:title>
+  <:subtitle>
+    <%= if Phoenix.Flash.get(@flash, :login_instructions) do %>
+      <p class="text-gray-500 mt-1 mb-2">
+        {Phoenix.Flash.get(@flash, :login_instructions)}
+      </p>
+    <% end %>
+  </:subtitle>
+  <.form :let={f} for={@conn} action="/login">
+    <div class="my-4 mt-8">
+      <.input
+        type="email"
+        autocomplete="username"
+        placeholder="user@example.com"
+        field={f[:email]}
+        label="Email"
+      />
+    </div>
+    <div class="my-4">
+      <.input
+        type="password"
+        autocomplete="current-password"
+        id="current-password"
+        field={f[:password]}
+        label="Password"
+      />
+    </div>
+
+    <%= if @conn.assigns[:error] do %>
+      <div class="text-red-500 mt-4">{@conn.assigns[:error]}</div>
+    <% end %>
+
+    <.input type="hidden" field={f[:return_to]} />
+
+    <.button class="w-full" type="submit">Log in</.button>
+  </.form>
+
+  <:footer>
+    <.focus_list>
+      <:item :if={
+        Keyword.fetch!(Application.get_env(:plausible, :selfhost), :disable_registration) == false
+      }>
+        Don't have an account?
+        <.styled_link href="/register">
+          Register
+        </.styled_link>
+        instead.
+      </:item>
+      <:item>
+        Forgot password?
+        <.styled_link href="/password/request-reset">
+          Click here
+        </.styled_link>
+        to reset it.
+      </:item>
+    </.focus_list>
+  </:footer>
+</.focus_box>

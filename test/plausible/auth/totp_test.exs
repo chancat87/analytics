@@ -115,8 +115,10 @@ defmodule Plausible.Auth.TOTPTest do
       {:ok, user, %{recovery_codes: [recovery_code | recovery_codes]}} = TOTP.enable(user, code)
       :ok = TOTP.use_recovery_code(user, recovery_code)
 
+      new_code = NimbleTOTP.verification_code(user.totp_secret)
+
       assert {:ok, updated_user, %{recovery_codes: new_recovery_codes}} =
-               TOTP.enable(user, code, allow_reuse?: true)
+               TOTP.enable(user, new_code, allow_reuse?: true)
 
       assert updated_user.id == user.id
       assert updated_user.totp_enabled
@@ -206,6 +208,40 @@ defmodule Plausible.Auth.TOTPTest do
     end
   end
 
+  describe "force_disable/1" do
+    test "disables TOTP for user who has it enabled" do
+      user = insert(:user, password: "VeryStrongVerySecret")
+      {:ok, user, _} = TOTP.initiate(user)
+      code = NimbleTOTP.verification_code(user.totp_secret)
+      {:ok, user, _} = TOTP.enable(user, code)
+
+      assert_email_delivered_with(
+        to: [{user.name, user.email}],
+        subject: "Plausible Two-Factor Authentication enabled"
+      )
+
+      assert {:ok, updated_user} = TOTP.force_disable(user)
+
+      assert updated_user.id == user.id
+      refute updated_user.totp_enabled
+      assert is_nil(updated_user.totp_token)
+      assert is_nil(updated_user.totp_secret)
+
+      assert Repo.all(RecoveryCode) == []
+    end
+
+    test "succeeds for user who does not have TOTP enabled" do
+      user = insert(:user, password: "VeryStrongVerySecret")
+
+      assert {:ok, updated_user} = TOTP.force_disable(user)
+
+      assert updated_user.id == user.id
+      refute updated_user.totp_enabled
+      assert is_nil(updated_user.totp_token)
+      assert is_nil(updated_user.totp_secret)
+    end
+  end
+
   describe "reset_token/1" do
     test "generates new token when TOTP enabled" do
       user = insert(:user, password: "VeryStrongVerySecret")
@@ -292,7 +328,7 @@ defmodule Plausible.Auth.TOTPTest do
       # making sure that generated OTP codes are different
       assert code != new_code
 
-      assert {:ok, user} = TOTP.validate_code(user, code, allow_reuse?: true)
+      assert {:ok, user} = TOTP.validate_code(user, new_code, allow_reuse?: true)
 
       assert_in_delta Timex.to_unix(user.totp_last_used_at), System.os_time(:second), 2
     end
