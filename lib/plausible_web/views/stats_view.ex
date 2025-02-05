@@ -35,14 +35,14 @@ defmodule PlausibleWeb.StatsView do
           "#{billions}B"
         end
 
-      true ->
+      is_integer(n) ->
         Integer.to_string(n)
     end
   end
 
   def stats_container_class(conn) do
     cond do
-      conn.assigns[:embedded] && conn.assigns[:width] == "manual" -> ""
+      conn.assigns[:embedded] && conn.params["width"] == "manual" -> "px-6"
       conn.assigns[:embedded] -> "max-w-screen-xl mx-auto px-6"
       !conn.assigns[:embedded] -> "container print:max-w-full"
     end

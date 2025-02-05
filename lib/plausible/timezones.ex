@@ -6,42 +6,20 @@ defmodule Plausible.Timezones do
     |> Enum.sort_by(& &1[:offset], :desc)
   end
 
-  @spec to_utc_datetime(NaiveDateTime.t(), String.t()) :: DateTime.t()
-  def to_utc_datetime(naive_date_time, timezone) do
-    case Timex.to_datetime(naive_date_time, timezone) do
-      %DateTime{} = tz_dt ->
-        Timex.Timezone.convert(tz_dt, "UTC")
-
-      %Timex.AmbiguousDateTime{after: after_dt} ->
-        Timex.Timezone.convert(after_dt, "UTC")
-
-      {:error, {:could_not_resolve_timezone, _, _, _}} ->
-        Timex.Timezone.convert(naive_date_time, "UTC")
-    end
-  end
-
   @spec to_date_in_timezone(Date.t() | NaiveDateTime.t() | DateTime.t(), String.t()) :: Date.t()
   def to_date_in_timezone(dt, timezone) do
-    utc_dt =
-      case dt do
-        %Date{} ->
-          Timex.to_datetime(dt, "UTC")
-
-        dt ->
-          Timex.Timezone.convert(dt, "UTC")
-      end
-
-    case Timex.Timezone.convert(utc_dt, timezone) do
-      %DateTime{} = tz_dt ->
-        Timex.to_date(tz_dt)
-
-      %Timex.AmbiguousDateTime{after: after_dt} ->
-        Timex.to_date(after_dt)
-
-      {:error, {:could_not_resolve_timezone, _, _, _}} ->
-        dt
-    end
+    to_datetime_in_timezone(dt, timezone) |> DateTime.to_date()
   end
+
+  @spec to_datetime_in_timezone(Date.t() | NaiveDateTime.t() | DateTime.t(), String.t()) ::
+          DateTime.t()
+  def to_datetime_in_timezone(dt, timezone) do
+    dt |> to_datetime() |> DateTime.shift_zone!(timezone)
+  end
+
+  defp to_datetime(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
+  defp to_datetime(%Date{} = date), do: DateTime.new!(date, ~T[00:00:00], "Etc/UTC")
+  defp to_datetime(%DateTime{} = already_dt), do: already_dt
 
   defp build_option(timezone_code, acc, now) do
     case Timex.Timezone.get(timezone_code, now) do

@@ -3,18 +3,44 @@ defmodule PlausibleWeb.InvitationController do
 
   plug PlausibleWeb.RequireAccountPlug
 
-  plug PlausibleWeb.AuthorizeSiteAccess, [:owner, :admin] when action in [:remove_invitation]
+  plug PlausibleWeb.Plugs.AuthorizeSiteAccess,
+       [:owner, :editor, :admin] when action in [:remove_invitation]
 
   def accept_invitation(conn, %{"invitation_id" => invitation_id}) do
     case Plausible.Site.Memberships.accept_invitation(invitation_id, conn.assigns.current_user) do
-      {:ok, membership} ->
-        conn
-        |> put_flash(:success, "You now have access to #{membership.site.domain}")
-        |> redirect(external: "/#{URI.encode_www_form(membership.site.domain)}")
+      {:ok, result} ->
+        team = result.team
+
+        site =
+          case result do
+            %{guest_memberships: [guest_membership]} ->
+              Plausible.Repo.preload(guest_membership, :site).site
+
+            %{guest_memberships: []} ->
+              nil
+
+            %{site: site} ->
+              site
+          end
+
+        if site do
+          conn
+          |> put_flash(:success, "You now have access to #{site.domain}")
+          |> redirect(external: "/#{URI.encode_www_form(site.domain)}")
+        else
+          conn
+          |> put_flash(:success, "You now have access to \"#{team.name}\" team")
+          |> redirect(external: "/sites")
+        end
 
       {:error, :invitation_not_found} ->
         conn
         |> put_flash(:error, "Invitation missing or already accepted")
+        |> redirect(to: "/sites")
+
+      {:error, :already_other_team_member} ->
+        conn
+        |> put_flash(:error, "You already are a team member in another team")
         |> redirect(to: "/sites")
 
       {:error, :no_plan} ->
@@ -39,9 +65,9 @@ defmodule PlausibleWeb.InvitationController do
 
   def reject_invitation(conn, %{"invitation_id" => invitation_id}) do
     case Plausible.Site.Memberships.reject_invitation(invitation_id, conn.assigns.current_user) do
-      {:ok, invitation} ->
+      {:ok, _invitation} ->
         conn
-        |> put_flash(:success, "You have rejected the invitation to #{invitation.site.domain}")
+        |> put_flash(:success, "You have rejected the invitation")
         |> redirect(to: "/sites")
 
       {:error, :invitation_not_found} ->
@@ -53,15 +79,45 @@ defmodule PlausibleWeb.InvitationController do
 
   def remove_invitation(conn, %{"invitation_id" => invitation_id}) do
     case Plausible.Site.Memberships.remove_invitation(invitation_id, conn.assigns.site) do
-      {:ok, invitation} ->
+      {:ok, invitation_or_transfer} ->
+        {site, email} =
+          case invitation_or_transfer do
+            %Plausible.Teams.GuestInvitation{} = guest_invitation ->
+              {guest_invitation.site, guest_invitation.team_invitation.email}
+
+            %Plausible.Teams.SiteTransfer{} = site_transfer ->
+              {site_transfer.site, site_transfer.email}
+          end
+
         conn
-        |> put_flash(:success, "You have removed the invitation for #{invitation.email}")
-        |> redirect(external: Routes.site_path(conn, :settings_people, invitation.site.domain))
+        |> put_flash(:success, "You have removed the invitation for #{email}")
+        |> redirect(external: Routes.site_path(conn, :settings_people, site.domain))
 
       {:error, :invitation_not_found} ->
         conn
         |> put_flash(:error, "Invitation missing or already removed")
         |> redirect(external: Routes.site_path(conn, :settings_people, conn.assigns.site.domain))
+    end
+  end
+
+  def remove_team_invitation(conn, %{"invitation_id" => invitation_id}) do
+    %{my_team: team, current_user: current_user} = conn.assigns
+
+    case Plausible.Teams.Invitations.Remove.remove(team, invitation_id, current_user) do
+      {:ok, invitation} ->
+        conn
+        |> put_flash(:success, "You have removed the invitation for #{invitation.email}")
+        |> redirect(external: Routes.settings_path(conn, :team_general))
+
+      {:error, :invitation_not_found} ->
+        conn
+        |> put_flash(:error, "Invitation missing or already removed")
+        |> redirect(external: Routes.settings_path(conn, :team_general))
+
+      {:error, :permission_denied} ->
+        conn
+        |> put_flash(:error, "You are not allowed to remove invitations")
+        |> redirect(to: Routes.settings_path(conn, :team_general))
     end
   end
 end

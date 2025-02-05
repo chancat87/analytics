@@ -5,6 +5,8 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
   import Phoenix.LiveViewTest
   import Plausible.Test.Support.HTML
 
+  use Plausible.Teams.Test
+
   alias Plausible.Auth.User
   alias Plausible.Repo
 
@@ -63,10 +65,13 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
       html = lv |> element("form") |> render_submit()
 
-      assert_push_event(lv, "send-metrics", %{event_name: "Signup", params: %{}})
+      on_ee do
+        assert_push_event(lv, "send-metrics", %{event_name: "Signup"})
+      end
 
       assert [
                csrf_input,
+               action_input,
                name_input,
                email_input,
                password_input,
@@ -74,6 +79,7 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
              ] = find(html, "input")
 
       assert String.length(text_of_attr(csrf_input, "value")) > 0
+      assert text_of_attr(action_input, "value") == "register_form"
       assert text_of_attr(name_input, "value") == "Mary Sue"
       assert text_of_attr(email_input, "value") == "mary.sue@plausible.test"
       assert text_of_attr(password_input, "value") == "very-long-and-very-secret-123"
@@ -134,24 +140,19 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
   describe "/register/invitation/:invitation_id" do
     setup do
-      inviter = insert(:user)
-      site = insert(:site, members: [inviter])
+      inviter = new_user()
+      site = new_site(owner: inviter)
 
-      invitation =
-        insert(:invitation,
-          site_id: site.id,
-          inviter: inviter,
-          email: "user@email.co",
-          role: :admin
-        )
+      guest_invitation =
+        invite_guest(site, "user@email.co", role: :editor, inviter: inviter)
 
-      {:ok, %{site: site, invitation: invitation, inviter: inviter}}
+      {:ok, %{site: site, guest_invitation: guest_invitation, inviter: inviter}}
     end
 
-    test "registers user from invitation", %{conn: conn, invitation: invitation} do
+    test "registers user from guest invitation", %{conn: conn, guest_invitation: guest_invitation} do
       mock_captcha_success()
 
-      lv = get_liveview(conn, "/register/invitation/#{invitation.invitation_id}")
+      lv = get_liveview(conn, "/register/invitation/#{guest_invitation.invitation_id}")
 
       type_into_input(lv, "user[name]", "Mary Sue")
       type_into_input(lv, "user[password]", "very-long-and-very-secret-123")
@@ -159,10 +160,13 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
       html = lv |> element("form") |> render_submit()
 
-      assert_push_event(lv, "send-metrics", %{event_name: "Signup via invitation", params: %{}})
+      on_ee do
+        assert_push_event(lv, "send-metrics", %{event_name: "Signup via invitation"})
+      end
 
       assert [
                csrf_input,
+               action_input,
                email_input,
                name_input,
                password_input,
@@ -170,20 +174,59 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
              ] = find(html, "input")
 
       assert String.length(text_of_attr(csrf_input, "value")) > 0
+      assert text_of_attr(action_input, "value") == "register_from_invitation_form"
       assert text_of_attr(name_input, "value") == "Mary Sue"
       assert text_of_attr(email_input, "value") == "user@email.co"
       assert text_of_attr(password_input, "value") == "very-long-and-very-secret-123"
       assert text_of_attr(password_confirmation_input, "value") == "very-long-and-very-secret-123"
 
-      assert %{
-               name: "Mary Sue",
-               email: "user@email.co",
-               password_hash: password_hash,
-               # leaves trial_expiry_date null when invitation role is not :owner
-               trial_expiry_date: nil
-             } = Repo.get_by(User, email: "user@email.co")
+      assert user =
+               %{
+                 name: "Mary Sue",
+                 email: "user@email.co",
+                 password_hash: password_hash
+               } = Repo.get_by(User, email: "user@email.co")
+
+      assert team_of(user) == nil
 
       assert String.length(password_hash) > 0
+    end
+
+    test "registers user from team invitation", %{conn: conn, inviter: inviter} do
+      mock_captcha_success()
+
+      team = team_of(inviter)
+
+      team_invitation =
+        invite_member(team, "team-user@email.co", role: :editor, inviter: inviter)
+
+      lv = get_liveview(conn, "/register/invitation/#{team_invitation.invitation_id}")
+
+      type_into_input(lv, "user[name]", "Mary Sue")
+      type_into_input(lv, "user[password]", "very-long-and-very-secret-123")
+      type_into_input(lv, "user[password_confirmation]", "very-long-and-very-secret-123")
+
+      html = lv |> element("form") |> render_submit()
+
+      on_ee do
+        assert_push_event(lv, "send-metrics", %{event_name: "Signup via invitation"})
+      end
+
+      assert [
+               csrf_input,
+               action_input,
+               email_input,
+               name_input,
+               password_input,
+               password_confirmation_input | _
+             ] = find(html, "input")
+
+      assert String.length(text_of_attr(csrf_input, "value")) > 0
+      assert text_of_attr(action_input, "value") == "register_from_invitation_form"
+      assert text_of_attr(name_input, "value") == "Mary Sue"
+      assert text_of_attr(email_input, "value") == "team-user@email.co"
+      assert text_of_attr(password_input, "value") == "very-long-and-very-secret-123"
+      assert text_of_attr(password_confirmation_input, "value") == "very-long-and-very-secret-123"
     end
 
     test "preserves trial_expiry_date when invitation role is :owner", %{
@@ -193,15 +236,9 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
     } do
       mock_captcha_success()
 
-      invitation =
-        insert(:invitation,
-          site_id: site.id,
-          inviter: inviter,
-          email: "owner_user@email.co",
-          role: :owner
-        )
+      site_transfer = invite_transfer(site, "owner_user@email.co", inviter: inviter)
 
-      lv = get_liveview(conn, "/register/invitation/#{invitation.invitation_id}")
+      lv = get_liveview(conn, "/register/invitation/#{site_transfer.transfer_id}")
 
       type_into_input(lv, "user[name]", "Mary Sue")
       type_into_input(lv, "user[password]", "very-long-and-very-secret-123")
@@ -209,18 +246,18 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
       _html = lv |> element("form") |> render_submit()
 
-      assert %{
-               email: "owner_user@email.co",
-               trial_expiry_date: trial_expiry_date
-             } = Repo.get_by(User, email: "owner_user@email.co")
+      assert user = Repo.get_by(User, email: "owner_user@email.co")
 
-      assert trial_expiry_date != nil
+      assert team_of(user).trial_expiry_date != nil
     end
 
-    test "always uses original email from the invitation", %{conn: conn, invitation: invitation} do
+    test "always uses original email from the invitation", %{
+      conn: conn,
+      guest_invitation: guest_invitation
+    } do
       mock_captcha_success()
 
-      lv = get_liveview(conn, "/register/invitation/#{invitation.invitation_id}")
+      lv = get_liveview(conn, "/register/invitation/#{guest_invitation.invitation_id}")
 
       type_into_input(lv, "user[name]", "Mary Sue")
       type_into_input(lv, "user[email]", "mary.sue@plausible.test")
@@ -231,6 +268,7 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
       assert [
                _csrf_input,
+               _action_input,
                email_input | _
              ] = find(html, "input")
 
@@ -241,10 +279,18 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
       refute Repo.get_by(User, email: "mary.sue@plausible.test")
     end
 
-    test "renders error on failed captcha", %{conn: conn, invitation: invitation} do
+    test "renders expired invitation notice on on-existent invitation ID", %{conn: conn} do
+      lv = get_liveview(conn, "/register/invitation/doesnotexist")
+
+      html = render(lv)
+
+      assert html =~ "Your invitation has expired or been revoked"
+    end
+
+    test "renders error on failed captcha", %{conn: conn, guest_invitation: guest_invitation} do
       mock_captcha_failure()
 
-      lv = get_liveview(conn, "/register/invitation/#{invitation.invitation_id}")
+      lv = get_liveview(conn, "/register/invitation/#{guest_invitation.invitation_id}")
 
       type_into_input(lv, "user[name]", "Mary Sue")
       type_into_input(lv, "user[password]", "very-long-and-very-secret-123")
@@ -259,9 +305,9 @@ defmodule PlausibleWeb.Live.RegisterFormTest do
 
     test "pushing send-metrics-after event submits the form", %{
       conn: conn,
-      invitation: invitation
+      guest_invitation: guest_invitation
     } do
-      lv = get_liveview(conn, "/register/invitation/#{invitation.invitation_id}")
+      lv = get_liveview(conn, "/register/invitation/#{guest_invitation.invitation_id}")
 
       refute render(lv) =~ ~s|phx-trigger-action="phx-trigger-action"|
 

@@ -1,7 +1,11 @@
 defmodule PlausibleWeb.EmailTest do
-  alias PlausibleWeb.Email
-  use ExUnit.Case, async: true
+  use Plausible.DataCase, async: true
+  use Plausible.Teams.Test
+
   import Plausible.Factory
+  import Plausible.Test.Support.HTML
+
+  alias PlausibleWeb.Email
 
   describe "base_email layout" do
     test "greets user by first name if user in template assigns" do
@@ -13,6 +17,7 @@ defmodule PlausibleWeb.EmailTest do
         })
 
       assert email.html_body =~ "Hey John,"
+      assert email.text_body =~ "Hey John,"
     end
 
     test "greets impersonally when user not in template assigns" do
@@ -21,6 +26,7 @@ defmodule PlausibleWeb.EmailTest do
         |> Email.render("welcome_email.html")
 
       assert email.html_body =~ "Hey,"
+      assert email.text_body =~ "Hey,"
     end
 
     test "renders plausible link" do
@@ -29,8 +35,10 @@ defmodule PlausibleWeb.EmailTest do
         |> Email.render("welcome_email.html")
 
       assert email.html_body =~ plausible_link()
+      assert email.text_body =~ plausible_url()
     end
 
+    @tag :ee_only
     test "renders unsubscribe placeholder" do
       email =
         Email.base_email()
@@ -48,11 +56,15 @@ defmodule PlausibleWeb.EmailTest do
 
       refute email.html_body =~ "Hey John,"
       refute email.html_body =~ plausible_link()
+
+      refute email.text_body =~ "Hey John,"
+      refute email.text_body =~ plausible_url()
     end
   end
 
   describe "priority email layout" do
-    test "uses the `priority` message stream in Postmark" do
+    @tag :ee_only
+    test "uses the `priority` message stream in Postmark in EE" do
       email =
         Email.priority_email()
         |> Email.render("activation_email.html", %{
@@ -61,6 +73,18 @@ defmodule PlausibleWeb.EmailTest do
         })
 
       assert %{"MessageStream" => "priority"} = email.private[:message_params]
+    end
+
+    @tag :ce_build_only
+    test "doesn't use the `priority` message stream in Postmark in CE" do
+      email =
+        Email.priority_email()
+        |> Email.render("activation_email.html", %{
+          user: build(:user, name: "John Doe"),
+          code: "123"
+        })
+
+      refute email.private[:message_params]["MessageStream"]
     end
 
     test "greets user by first name if user in template assigns" do
@@ -72,6 +96,7 @@ defmodule PlausibleWeb.EmailTest do
         })
 
       assert email.html_body =~ "Hey John,"
+      assert email.text_body =~ "Hey John,"
     end
 
     test "greets impersonally when user not in template assigns" do
@@ -82,6 +107,7 @@ defmodule PlausibleWeb.EmailTest do
         })
 
       assert email.html_body =~ "Hey,"
+      assert email.text_body =~ "Hey,"
     end
 
     test "renders plausible link" do
@@ -92,6 +118,7 @@ defmodule PlausibleWeb.EmailTest do
         })
 
       assert email.html_body =~ plausible_link()
+      assert email.text_body =~ plausible_url()
     end
 
     test "does not render unsubscribe placeholder" do
@@ -113,6 +140,9 @@ defmodule PlausibleWeb.EmailTest do
 
       refute email.html_body =~ "Hey John,"
       refute email.html_body =~ plausible_link()
+
+      refute email.text_body =~ "Hey John,"
+      refute email.text_body =~ plausible_url()
     end
   end
 
@@ -140,12 +170,14 @@ defmodule PlausibleWeb.EmailTest do
       assert html_body =~
                "cycle before that (#{PlausibleWeb.TextHelpers.format_date_range(penultimate_cycle)}), your account used 12,300 billable pageviews"
 
-      assert html_body =~ "/billing/choose-plan\">Click here to upgrade your subscription</a>"
+      assert text_of_element(html_body, ~s|a[href$="/billing/choose-plan"]|) ==
+               "Click here to upgrade your subscription"
+
+      assert text_of_element(html_body, ~s|a[href$="/settings/billing/subscription"]|) ==
+               "account settings"
 
       assert html_body =~
                PlausibleWeb.Router.Helpers.billing_url(PlausibleWeb.Endpoint, :choose_plan)
-
-      assert html_body =~ "/settings\">account settings</a>"
     end
 
     test "asks enterprise level usage to contact us" do
@@ -190,12 +222,14 @@ defmodule PlausibleWeb.EmailTest do
       assert html_body =~
                "cycle before that (#{PlausibleWeb.TextHelpers.format_date_range(penultimate_cycle)}), the usage was 12,300 billable pageviews"
 
-      assert html_body =~ "/billing/choose-plan\">Click here to upgrade your subscription</a>"
+      assert text_of_element(html_body, ~s|a[href$="/billing/choose-plan"]|) ==
+               "Click here to upgrade your subscription"
+
+      assert text_of_element(html_body, ~s|a[href$="/settings/billing/subscription"]|) ==
+               "account settings"
 
       assert html_body =~
                PlausibleWeb.Router.Helpers.billing_url(PlausibleWeb.Endpoint, :choose_plan)
-
-      assert html_body =~ "/settings\">account settings</a>"
     end
 
     test "asks enterprise level usage to contact us" do
@@ -274,8 +308,126 @@ defmodule PlausibleWeb.EmailTest do
     end
   end
 
+  describe "site setup emails" do
+    setup do
+      trial_user = new_user(trial_expiry_date: Date.add(Date.utc_today(), 100))
+      site = new_site(owner: trial_user)
+
+      emails = [
+        PlausibleWeb.Email.create_site_email(trial_user),
+        PlausibleWeb.Email.site_setup_help(trial_user, site),
+        PlausibleWeb.Email.site_setup_success(trial_user, site.team, site)
+      ]
+
+      {:ok, emails: emails}
+    end
+
+    @trial_message "trial"
+    @reply_message "reply back"
+
+    @tag :ee_only
+    test "has 'trial' and 'reply' blocks, correct product name", %{emails: emails} do
+      for email <- emails do
+        assert email.html_body =~ @trial_message
+        assert email.html_body =~ @reply_message
+        refute email.html_body =~ "Plausible CE"
+      end
+
+      assert Enum.any?(emails, fn email -> email.html_body =~ "Plausible Analytics" end)
+    end
+
+    @tag :ce_build_only
+    test "no 'trial' or 'reply' blocks, correct product name", %{emails: emails} do
+      for email <- emails do
+        refute email.html_body =~ @trial_message
+        refute email.html_body =~ @reply_message
+        refute email.html_body =~ "Plausible Analytics"
+      end
+
+      assert Enum.any?(emails, fn email -> email.html_body =~ "Plausible CE" end)
+    end
+  end
+
+  describe "text_body" do
+    @tag :ee_only
+    test "welcome_email (EE)" do
+      email =
+        Email.base_email()
+        |> Email.render("welcome_email.html", %{
+          user: build(:user, name: "John Doe"),
+          code: "123"
+        })
+
+      assert email.text_body == """
+             Hey John,
+
+             We are building Plausible to provide a simple and ethical approach to tracking website visitors. We're super excited to have you on board!
+
+             Here's how to get the most out of your Plausible experience:
+
+             * Enable email reports (https://plausible.io/docs/email-reports) and notifications for traffic spikes (https://plausible.io/docs/traffic-spikes)
+             * Integrate with Search Console (https://plausible.io/docs/google-search-console-integration) to get keyword phrases people find your site with
+             * Invite team members and other collaborators (https://plausible.io/docs/users-roles)
+             * Set up easy goals including 404 error pages (https://plausible.io/docs/error-pages-tracking-404), file downloads (https://plausible.io/docs/file-downloads-tracking) and outbound link clicks (https://plausible.io/docs/outbound-link-click-tracking)
+             * Opt out from counting your own visits (https://plausible.io/docs/excluding)
+             * If you're concerned about adblockers, set up a proxy to bypass them (https://plausible.io/docs/proxy/introduction)
+
+
+             Then you're ready to start exploring your fast loading, ethical and actionable Plausible dashboard (https://plausible.io/sites).
+
+             Have a question, feedback or need some guidance? Do reply back to this email.
+
+             Regards,
+             The Plausible Team 💌
+
+             --
+
+             http://localhost:8000
+             {{{ pm:unsubscribe }}}\
+             """
+    end
+
+    @tag :ce_build_only
+    test "welcome_email (CE)" do
+      email =
+        Email.base_email()
+        |> Email.render("welcome_email.html", %{
+          user: build(:user, name: "John Doe"),
+          code: "123"
+        })
+
+      assert email.text_body == """
+             Hey John,
+
+             We are building Plausible to provide a simple and ethical approach to tracking website visitors. We're super excited to have you on board!
+
+             Here's how to get the most out of your Plausible experience:
+
+             * Enable email reports (https://plausible.io/docs/email-reports) and notifications for traffic spikes (https://plausible.io/docs/traffic-spikes)
+             * Integrate with Search Console (https://plausible.io/docs/google-search-console-integration) to get keyword phrases people find your site with
+             * Invite team members and other collaborators (https://plausible.io/docs/users-roles)
+             * Set up easy goals including 404 error pages (https://plausible.io/docs/error-pages-tracking-404), file downloads (https://plausible.io/docs/file-downloads-tracking) and outbound link clicks (https://plausible.io/docs/outbound-link-click-tracking)
+             * Opt out from counting your own visits (https://plausible.io/docs/excluding)
+             * If you're concerned about adblockers, set up a proxy to bypass them (https://plausible.io/docs/proxy/introduction)
+
+
+             Then you're ready to start exploring your fast loading, ethical and actionable Plausible dashboard (https://plausible.io/sites).
+
+             Have a question, feedback or need some guidance? Do reply back to this email.
+
+             --
+
+             http://localhost:8000
+             """
+    end
+  end
+
+  def plausible_url do
+    PlausibleWeb.EmailView.plausible_url()
+  end
+
   def plausible_link() do
-    plausible_url = PlausibleWeb.EmailView.plausible_url()
+    plausible_url = plausible_url()
     "<a href=\"#{plausible_url}\">#{plausible_url}</a>"
   end
 end

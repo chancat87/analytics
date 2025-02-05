@@ -1,11 +1,16 @@
 defmodule Plausible.DataMigration.VersionedSessions do
   @moduledoc """
-  Sessions CollapsingMergeTree -> VersionedCollapsingMergeTree migration, SQL files available at:
+  !!!WARNING!!!: This script is used in migrations. Please take special care
+  when altering it.
+
+  Sessions CollapsingMergeTree -> VersionedCollapsingMergeTree migration,
+  SQL files available at:
+
   priv/data_migrations/VersionedSessions/sql
   """
   use Plausible.DataMigration, dir: "VersionedSessions", repo: Plausible.IngestRepo
 
-  @suffix_format "{YYYY}{0M}{0D}{h24}{m}{s}"
+  @suffix_format "%Y%m%d%H%M%S"
   @versioned_table_engines [
     "ReplicatedVersionedCollapsingMergeTree",
     "VersionedCollapsingMergeTree"
@@ -14,9 +19,9 @@ defmodule Plausible.DataMigration.VersionedSessions do
   def run(opts \\ []) do
     run_exchange? = Keyword.get(opts, :run_exchange?, true)
 
-    unique_suffix = Timex.now() |> Timex.format!(@suffix_format)
+    unique_suffix = DateTime.utc_now() |> Calendar.strftime(@suffix_format)
 
-    cluster? = Plausible.MigrationUtils.clustered_table?("sessions_v2")
+    cluster? = Plausible.IngestRepo.clustered_table?("sessions_v2")
 
     {:ok, %{rows: partitions}} = run_sql("list-partitions")
     partitions = Enum.map(partitions, fn [part] -> part end)
@@ -54,7 +59,7 @@ defmodule Plausible.DataMigration.VersionedSessions do
         nil
 
       # Docker containers don't seem to support EXCHANGE TABLE, hack around this with a non-atomic swap
-      {:error, %Ch.Error{code: 1}} ->
+      {:error, %Ch.Error{code: code}} when code in [1, 48] ->
         IO.puts("Exchanging sessions_v2 and sessions_v2_tmp_versioned non-atomically")
 
         {:ok, _} =

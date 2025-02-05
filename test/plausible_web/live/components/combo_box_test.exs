@@ -23,6 +23,30 @@ defmodule PlausibleWeb.Live.Components.ComboBoxTest do
       end
     end
 
+    test "renders preselected default value (tuple)" do
+      options = new_options(10)
+      assert doc = render_sample_component(options, selected: List.last(options))
+
+      assert element_exists?(doc, "input[type=hidden][name=test-submit-name][value=10]")
+
+      assert element_exists?(
+               doc,
+               ~s|input[type=text][name=display-test-component][value="TestOption 10"]|
+             )
+    end
+
+    test "renders preselected default value (string)" do
+      options = [{"a", "a"}, {"b", "b"}, {"c", "c"}]
+      assert doc = render_sample_component(options, selected: "b")
+
+      assert element_exists?(doc, "input[type=hidden][name=test-submit-name][value=b]")
+
+      assert element_exists?(
+               doc,
+               ~s|input[type=text][name=display-test-component][value="b"]|
+             )
+    end
+
     test "renders up to 15 suggestions by default" do
       assert doc = render_sample_component(new_options(20))
 
@@ -221,6 +245,24 @@ defmodule PlausibleWeb.Live.Components.ComboBoxTest do
       end
     end
 
+    defmodule CreatableCustomView do
+      use Phoenix.LiveView
+
+      def render(assigns) do
+        ~H"""
+        <.live_component
+          submit_name="some_submit_name"
+          module={PlausibleWeb.Live.Components.ComboBox}
+          suggest_fun={&ComboBox.StaticSearch.suggest/2}
+          id="test-creatable-component"
+          creatable
+          creatable_prompt="Custom Text"
+          clear_on_select
+        />
+        """
+      end
+    end
+
     test "stores selected value from suggestion", %{conn: conn} do
       {:ok, lv, _html} = live_isolated(conn, CreatableView, session: %{})
       type_into_combo(lv, "test-creatable-component", "option 20")
@@ -287,6 +329,27 @@ defmodule PlausibleWeb.Live.Components.ComboBoxTest do
         |> find("input[type=hidden][name=some_submit_name][value=\"my new option\"]")
 
       assert Floki.attribute(creatable_option, "x-on:click") == []
+    end
+
+    test "allows for custom creatable prompt", %{conn: conn} do
+      {:ok, lv, _html} = live_isolated(conn, CreatableCustomView, session: %{})
+
+      assert lv
+             |> type_into_combo("test-creatable-component", "my new option")
+             |> text_of_element("li#dropdown-test-creatable-component-option-0 a") ==
+               ~s(Custom Text "my new option")
+    end
+
+    test "clears on select", %{conn: conn} do
+      {:ok, lv, _html} = live_isolated(conn, CreatableCustomView, session: %{})
+
+      type_into_combo(lv, "test-creatable-component", "my new option")
+
+      lv
+      |> element("li#dropdown-test-creatable-component-option-0 a")
+      |> render_click()
+
+      assert lv |> render() |> text_of_attr("#test-creatable-component", "value") == ""
     end
   end
 

@@ -1,10 +1,10 @@
 defmodule PlausibleWeb.Components.Billing do
   @moduledoc false
 
-  use Phoenix.Component
-  import PlausibleWeb.Components.Generic
+  use PlausibleWeb, :component
+  use Plausible
+
   require Plausible.Billing.Subscription.Status
-  alias PlausibleWeb.Router.Helpers, as: Routes
   alias Plausible.Billing.{Subscription, Subscriptions}
 
   def render_monthly_pageview_usage(%{usage: usage} = assigns)
@@ -16,12 +16,12 @@ defmodule PlausibleWeb.Components.Billing do
 
   def render_monthly_pageview_usage(assigns) do
     ~H"""
-    <article id="monthly_pageview_usage_container" x-data="{ tab: 'current_cycle' }" class="mt-8">
-      <h1 class="text-xl mb-6 font-bold dark:text-gray-100">Monthly pageviews usage</h1>
-      <div class="mb-3">
+    <article id="monthly_pageview_usage_container" x-data="{ tab: 'last_cycle' }" class="mt-8">
+      <.title>Monthly pageviews usage</.title>
+      <div class="mt-4 mb-4">
         <ol class="divide-y divide-gray-300 dark:divide-gray-600 rounded-md border dark:border-gray-600 md:flex md:flex-row-reverse md:divide-y-0 md:overflow-hidden">
           <.billing_cycle_tab
-            name="Ongoing cycle"
+            name="Upcoming cycle"
             tab={:current_cycle}
             date_range={@usage.current_cycle.date_range}
             with_separator={true}
@@ -30,7 +30,6 @@ defmodule PlausibleWeb.Components.Billing do
             name="Last cycle"
             tab={:last_cycle}
             date_range={@usage.last_cycle.date_range}
-            disabled={@usage.last_cycle.total == 0 && @usage.penultimate_cycle.total == 0}
             with_separator={true}
           />
           <.billing_cycle_tab
@@ -80,14 +79,12 @@ defmodule PlausibleWeb.Components.Billing do
         pad
         title="Pageviews"
         usage={@usage.pageviews}
-        class="font-normal text-gray-500 dark:text-gray-400"
       />
       <.usage_and_limits_row
         id={"custom_events_#{@period}"}
         pad
         title="Custom events"
         usage={@usage.custom_events}
-        class="font-normal text-gray-500 dark:text-gray-400"
       />
     </.usage_and_limits_table>
     """
@@ -117,12 +114,12 @@ defmodule PlausibleWeb.Components.Billing do
             class="text-sm dark:text-gray-100"
             x-bind:class={"tab === '#{@tab}' ? 'text-indigo-600 dark:text-indigo-500 font-semibold' : 'font-medium'"}
           >
-            <%= @name %>
+            {@name}
           </span>
           <span class="flex text-xs text-gray-500 dark:text-gray-400">
-            <%= if @disabled,
+            {if @disabled,
               do: "Not available",
-              else: PlausibleWeb.TextHelpers.format_date_range(@date_range) %>
+              else: PlausibleWeb.TextHelpers.format_date_range(@date_range)}
           </span>
         </div>
       </button>
@@ -155,7 +152,7 @@ defmodule PlausibleWeb.Components.Billing do
     ~H"""
     <table class="min-w-full text-gray-900 dark:text-gray-100" {@rest}>
       <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-        <%= render_slot(@inner_block) %>
+        {render_slot(@inner_block)}
       </tbody>
     </table>
     """
@@ -170,12 +167,12 @@ defmodule PlausibleWeb.Components.Billing do
   def usage_and_limits_row(assigns) do
     ~H"""
     <tr {@rest}>
-      <td class={["py-4 pr-1 text-sm sm:whitespace-nowrap text-left", @pad && "pl-6"]}>
-        <%= @title %>
+      <td class={["text-sm py-4 pr-1 sm:whitespace-nowrap text-left", @pad && "pl-6"]}>
+        {@title}
       </td>
-      <td class="py-4 text-sm sm:whitespace-nowrap text-right">
-        <%= Cldr.Number.to_string!(@usage) %>
-        <%= if is_number(@limit), do: "/ #{Cldr.Number.to_string!(@limit)}" %>
+      <td class="text-sm py-4 sm:whitespace-nowrap text-right">
+        {Cldr.Number.to_string!(@usage)}
+        {if is_number(@limit), do: "/ #{Cldr.Number.to_string!(@limit)}"}
       </td>
     </tr>
     """
@@ -185,21 +182,21 @@ defmodule PlausibleWeb.Components.Billing do
     ~H"""
     <div
       id="monthly-quota-box"
-      class="h-32 px-2 py-4 my-4 text-center bg-gray-100 rounded dark:bg-gray-900"
-      style="width: 11.75rem;"
+      class="w-full md:w-1/3 h-32 px-2 py-4 my-4 text-center bg-gray-100 rounded dark:bg-gray-900 w-max-md"
     >
       <h4 class="font-black dark:text-gray-100">Monthly quota</h4>
       <div class="py-2 text-xl font-medium dark:text-gray-100">
-        <%= PlausibleWeb.AuthView.subscription_quota(@subscription, format: :long) %>
+        {PlausibleWeb.AuthView.subscription_quota(@subscription, format: :long)}
       </div>
       <.styled_link
         :if={
-          not (Plausible.Auth.enterprise_configured?(@user) && Subscriptions.halted?(@subscription))
+          not (Plausible.Teams.Billing.enterprise_configured?(@team) &&
+                 Subscriptions.halted?(@subscription))
         }
         id="#upgrade-or-change-plan-link"
         href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
       >
-        <%= change_plan_or_upgrade_text(@subscription) %>
+        {change_plan_or_upgrade_text(@subscription)}
       </.styled_link>
     </div>
     """
@@ -209,13 +206,13 @@ defmodule PlausibleWeb.Components.Billing do
     ~H"""
     <ul class="w-full py-4">
       <li>
-        Up to <b><%= present_limit(@plan, :monthly_pageview_limit) %></b> monthly pageviews
+        Up to <b>{present_limit(@plan, :monthly_pageview_limit)}</b> monthly pageviews
       </li>
       <li>
-        Up to <b><%= present_limit(@plan, :site_limit) %></b> sites
+        Up to <b>{present_limit(@plan, :site_limit)}</b> sites
       </li>
       <li>
-        Up to <b><%= present_limit(@plan, :hourly_api_request_limit) %></b> hourly api requests
+        Up to <b>{present_limit(@plan, :hourly_api_request_limit)}</b> hourly api requests
       </li>
     </ul>
     """
@@ -231,6 +228,7 @@ defmodule PlausibleWeb.Components.Billing do
   attr :paddle_product_id, :string, required: true
   attr :checkout_disabled, :boolean, default: false
   attr :user, :map, required: true
+  attr :team, :map, default: nil
   attr :confirm_message, :any, default: nil
   slot :inner_block, required: true
 
@@ -238,19 +236,29 @@ defmodule PlausibleWeb.Components.Billing do
     confirmed =
       if assigns.confirm_message, do: "confirm(\"#{assigns.confirm_message}\")", else: "true"
 
-    assigns = assign(assigns, :confirmed, confirmed)
+    passthrough =
+      if assigns.team do
+        "ee:#{ee?()};user:#{assigns.user.id};team:#{assigns.team.id}"
+      else
+        "ee:#{ee?()};user:#{assigns.user.id}"
+      end
+
+    assigns =
+      assigns
+      |> assign(:confirmed, confirmed)
+      |> assign(:passthrough, passthrough)
 
     ~H"""
     <button
       id={@id}
-      onclick={"if (#{@confirmed}) {Paddle.Checkout.open(#{Jason.encode!(%{product: @paddle_product_id, email: @user.email, disableLogout: true, passthrough: @user.id, success: Routes.billing_path(PlausibleWeb.Endpoint, :upgrade_success), theme: "none"})})}"}
+      onclick={"if (#{@confirmed}) {Paddle.Checkout.open(#{Jason.encode!(%{product: @paddle_product_id, email: @user.email, disableLogout: true, passthrough: @passthrough, success: Routes.billing_path(PlausibleWeb.Endpoint, :upgrade_success), theme: "none"})})}"}
       class={[
-        "w-full mt-6 block rounded-md py-2 px-3 text-center text-sm font-semibold leading-6 text-white",
+        "text-sm w-full mt-6 block rounded-md py-2 px-3 text-center font-semibold leading-6 text-white",
         !@checkout_disabled && "bg-indigo-600 hover:bg-indigo-500",
         @checkout_disabled && "pointer-events-none bg-gray-400 dark:bg-gray-600"
       ]}
     >
-      <%= render_slot(@inner_block) %>
+      {render_slot(@inner_block)}
     </button>
     """
   end
@@ -270,12 +278,9 @@ defmodule PlausibleWeb.Components.Billing do
 
   def upgrade_link(assigns) do
     ~H"""
-    <PlausibleWeb.Components.Generic.button_link
-      id="upgrade-link-2"
-      href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}
-    >
+    <.button_link id="upgrade-link-2" href={Routes.billing_path(PlausibleWeb.Endpoint, :choose_plan)}>
       Upgrade
-    </PlausibleWeb.Components.Generic.button_link>
+    </.button_link>
     """
   end
 

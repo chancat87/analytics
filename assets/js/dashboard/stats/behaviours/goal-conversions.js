@@ -1,25 +1,44 @@
 import React from "react"
 import Conversions from './conversions'
 import ListReport from "../reports/list"
-import { CR_METRIC } from "../reports/metrics"
+import * as metrics from '../reports/metrics'
 import * as url from "../../util/url"
 import * as api from "../../api"
+import { EVENT_PROPS_PREFIX, getGoalFilter, FILTER_OPERATIONS } from "../../util/filters"
+import { useSiteContext } from "../../site-context"
+import { useQueryContext } from "../../query-context"
+import { customPropsRoute } from "../../router"
 
 export const SPECIAL_GOALS = {
-  '404': {title: '404 Pages', prop: 'path'},
-  'Outbound Link: Click': {title: 'Outbound Links', prop: 'url'},
-  'Cloaked Link: Click': {title: 'Cloaked Links', prop: 'url'},
-  'File Download': {title: 'File Downloads', prop: 'url'}
+  '404': { title: '404 Pages', prop: 'path' },
+  'Outbound Link: Click': { title: 'Outbound Links', prop: 'url' },
+  'Cloaked Link: Click': { title: 'Cloaked Links', prop: 'url' },
+  'File Download': { title: 'File Downloads', prop: 'url' },
+  'WP Search Queries': { title: 'WordPress Search Queries', prop: 'search_query' },
+  'WP Form Completions': { title: 'WordPress Form Completions', prop: 'path' },
+}
+
+function getSpecialGoal(query) {
+  const goalFilter = getGoalFilter(query)
+  if (!goalFilter) {
+    return null
+  }
+  const [operation, _filterKey, clauses] = goalFilter
+  if (operation === FILTER_OPERATIONS.is && clauses.length == 1) {
+    return SPECIAL_GOALS[clauses[0]] || null
+  }
+  return null
+
 }
 
 export function specialTitleWhenGoalFilter(query, defaultTitle) {
-  return SPECIAL_GOALS[query.filters.goal]?.title || defaultTitle
+  return getSpecialGoal(query)?.title || defaultTitle
 }
 
-function SpecialPropBreakdown(props) {
-  const { site, query } = props
-  const prop = SPECIAL_GOALS[query.filters.goal].prop
-  
+function SpecialPropBreakdown({ prop, afterFetchData }) {
+  const site = useSiteContext();
+  const { query } = useQueryContext();
+
   function fetchData() {
     return api.get(url.apiPath(site, `/custom-prop-values/${prop}`), query)
   }
@@ -32,34 +51,44 @@ function SpecialPropBreakdown(props) {
     }
   }
 
-  const getFilterFor = (listItem) => { return {'props': JSON.stringify({[prop]: listItem['name']})} }
+  function getFilterFor(listItem) {
+    return {
+      prefix: EVENT_PROPS_PREFIX,
+      filter: ["is", `${EVENT_PROPS_PREFIX}${prop}`, [listItem['name']]]
+    }
+  }
+
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ renderLabel: (_query) => "Visitors", meta: { plot: true } }),
+      metrics.createEvents({ renderLabel: (_query) => "Events", meta: { hiddenOnMobile: true } }),
+      metrics.createConversionRate()
+    ].filter(metric => !!metric)
+  }
 
   return (
     <ListReport
       fetchData={fetchData}
+      afterFetchData={afterFetchData}
       getFilterFor={getFilterFor}
       keyLabel={prop}
-      metrics={[
-        {name: 'visitors', label: 'Visitors', plot: true},
-        {name: 'events', label: 'Events', hiddenOnMobile: true},
-        CR_METRIC
-      ]}
-      detailsLink={url.sitePath(site, `/custom-prop-values/${prop}`)}
+      metrics={chooseMetrics()}
+      detailsLinkProps={{ path: customPropsRoute.path, params: {propKey: url.maybeEncodeRouteParam(prop)}, search: (search) => search }}
       externalLinkDest={externalLinkDest()}
       maybeHideDetails={true}
-      query={query}
       color="bg-red-50"
       colMinWidth={90}
     />
   )
 }
 
-export default function GoalConversions(props) {
-  const {site, query} = props
+export default function GoalConversions({ afterFetchData, onGoalFilterClick }) {
+  const { query } = useQueryContext()
 
-  if (SPECIAL_GOALS[query.filters.goal]) {
-    return <SpecialPropBreakdown site={site} query={props.query} />
+  const specialGoal = getSpecialGoal(query)
+  if (specialGoal) {
+    return <SpecialPropBreakdown prop={specialGoal.prop} afterFetchData={afterFetchData} />
   } else {
-    return <Conversions site={site} query={props.query} onGoalFilterClick={props.onGoalFilterClick}/>
+    return <Conversions onGoalFilterClick={onGoalFilterClick} afterFetchData={afterFetchData} />
   }
 }

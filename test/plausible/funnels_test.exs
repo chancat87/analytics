@@ -1,16 +1,17 @@
 defmodule Plausible.FunnelsTest do
   use Plausible.DataCase
-  @moduletag :full_build_only
+  @moduletag :ee_only
 
   use Plausible
+  use Plausible.Teams.Test
 
-  on_full_build do
+  on_ee do
     alias Plausible.Goals
     alias Plausible.Funnels
     alias Plausible.Stats
 
     setup do
-      site = insert(:site)
+      site = new_site()
 
       {:ok, g1} = Goals.create(site, %{"page_path" => "/go/to/blog/**"})
       {:ok, g2} = Goals.create(site, %{"event_name" => "Signup"})
@@ -53,6 +54,28 @@ defmodule Plausible.FunnelsTest do
         assert fg1.step_order == 1
         assert fg2.step_order == 2
         assert fg3.step_order == 3
+      end
+
+      test "update funnel", %{site: site, steps: [g1, g2, g3, g4, g5 | _]} do
+        {:ok, funnel1} =
+          Funnels.create(
+            site,
+            "Sample funnel",
+            [g1, g2, g3]
+          )
+
+        {:ok, funnel2} = Funnels.update(funnel1, "Updated funnel", [g4, g5])
+
+        assert funnel2.name == "Updated funnel"
+        assert [fg1, fg2] = funnel2.steps
+
+        assert fg1.goal_id == g4["goal_id"]
+        assert fg2.goal_id == g5["goal_id"]
+
+        assert fg1.step_order == 1
+        assert fg2.step_order == 2
+
+        assert funnel1.id == funnel2.id
       end
 
       test "retrieve a funnel by id and site, get steps in order", %{

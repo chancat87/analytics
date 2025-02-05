@@ -28,7 +28,7 @@ defmodule PlausibleWeb.Components.Billing.PlanBenefits do
     <ul role="list" class={["mt-8 space-y-3 text-sm leading-6 xl:mt-10", @class]}>
       <li :for={benefit <- @benefits} class="flex gap-x-3">
         <Heroicons.check class="h-6 w-5 text-indigo-600 dark:text-green-600" />
-        <%= if is_binary(benefit), do: benefit, else: benefit.(assigns) %>
+        {if is_binary(benefit), do: benefit, else: benefit.(assigns)}
       </li>
     </ul>
     """
@@ -110,12 +110,12 @@ defmodule PlausibleWeb.Components.Billing.PlanBenefits do
   defp site_limit_benefit(%Plan{} = plan), do: "Up to #{plan.site_limit} sites"
 
   defp feature_benefits(%Plan{} = plan) do
-    Enum.map(plan.features, fn feature_mod ->
+    Enum.flat_map(plan.features, fn feature_mod ->
       case feature_mod.name() do
-        :goals -> "Goals and custom events"
-        :stats_api -> "Stats API (600 requests per hour)"
-        :revenue_goals -> "Ecommerce revenue attribution"
-        _ -> feature_mod.display_name()
+        :goals -> ["Goals and custom events"]
+        :stats_api -> ["Stats API (600 requests per hour)", "Looker Studio Connector"]
+        :revenue_goals -> ["Ecommerce revenue attribution"]
+        _ -> [feature_mod.display_name()]
       end
     end)
   end

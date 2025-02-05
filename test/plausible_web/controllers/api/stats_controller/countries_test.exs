@@ -2,7 +2,7 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
   use PlausibleWeb.ConnCase
 
   describe "GET /api/stats/:domain/countries" do
-    setup [:create_user, :log_in, :create_new_site, :add_imported_data]
+    setup [:create_user, :log_in, :create_site, :create_legacy_site_import]
 
     test "returns top countries by new visitors", %{conn: conn, site: site} do
       populate_stats(site, [
@@ -14,9 +14,9 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         build(:imported_visitors, visitors: 2)
       ])
 
-      conn = get(conn, "/api/stats/#{site.domain}/countries?period=day")
+      conn1 = get(conn, "/api/stats/#{site.domain}/countries?period=day")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn1, 200)["results"] == [
                %{
                  "code" => "EE",
                  "alpha_3" => "EST",
@@ -35,9 +35,9 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
                }
              ]
 
-      conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&with_imported=true")
+      conn2 = get(conn, "/api/stats/#{site.domain}/countries?period=day&with_imported=true")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn2, 200)["results"] == [
                %{
                  "code" => "EE",
                  "alpha_3" => "EST",
@@ -65,7 +65,7 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
 
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&with_imported=true")
 
-      assert json_response(conn, 200) == []
+      assert json_response(conn, 200)["results"] == []
     end
 
     test "calculates conversion_rate when filtering for goal", %{conn: conn, site: site} do
@@ -86,11 +86,13 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         build(:event, user_id: 3, name: "Signup")
       ])
 
-      filters = Jason.encode!(%{"goal" => "Signup"})
+      insert(:goal, site: site, event_name: "Signup")
+
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
 
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "EE",
                  "alpha_3" => "EST",
@@ -108,6 +110,56 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
                  "total_visitors" => 1,
                  "visitors" => 1,
                  "conversion_rate" => 100.0
+               }
+             ]
+    end
+
+    test "handles conversion_rate sort directive", %{conn: conn, site: site} do
+      populate_stats(site, [
+        build(:pageview,
+          user_id: 1,
+          country_code: "EE"
+        ),
+        build(:event, user_id: 1, name: "Signup"),
+        build(:pageview,
+          user_id: 2,
+          country_code: "EE"
+        ),
+        build(:pageview,
+          user_id: 3,
+          country_code: "GB"
+        ),
+        build(:event, user_id: 3, name: "Signup")
+      ])
+
+      insert(:goal, site: site, event_name: "Signup")
+
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
+
+      conn =
+        get(
+          conn,
+          "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}&order_by=#{Jason.encode!([["conversion_rate", "desc"]])}"
+        )
+
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "code" => "GB",
+                 "alpha_3" => "GBR",
+                 "name" => "United Kingdom",
+                 "flag" => "🇬🇧",
+                 "total_visitors" => 1,
+                 "visitors" => 1,
+                 "conversion_rate" => 100.0
+               },
+               %{
+                 "code" => "EE",
+                 "alpha_3" => "EST",
+                 "name" => "Estonia",
+                 "flag" => "🇪🇪",
+                 "total_visitors" => 2,
+                 "visitors" => 1,
+                 "conversion_rate" => 50.0
                }
              ]
     end
@@ -137,10 +189,10 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "John Doe"}})
+      filters = Jason.encode!([[:is, "event:props:author", ["John Doe"]]])
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "EE",
                  "alpha_3" => "EST",
@@ -179,10 +231,10 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "!John Doe"}})
+      filters = Jason.encode!([[:is_not, "event:props:author", ["John Doe"]]])
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "GB",
                  "alpha_3" => "GBR",
@@ -214,10 +266,10 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "(none)"}})
+      filters = Jason.encode!([[:is, "event:props:author", ["(none)"]]])
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "GB",
                  "alpha_3" => "GBR",
@@ -254,10 +306,10 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         )
       ])
 
-      filters = Jason.encode!(%{props: %{"author" => "!(none)"}})
+      filters = Jason.encode!([[:is_not, "event:props:author", ["(none)"]]])
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "EE",
                  "alpha_3" => "EST",
@@ -276,10 +328,10 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
         build(:pageview, country_code: "GB")
       ])
 
-      filters = Jason.encode!(%{country: "GB"})
+      filters = Jason.encode!([[:is, "visit:country", ["GB"]]])
       conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "code" => "GB",
                  "alpha_3" => "GBR",
@@ -287,6 +339,76 @@ defmodule PlausibleWeb.Api.StatsController.CountriesTest do
                  "flag" => "🇬🇧",
                  "visitors" => 1,
                  "percentage" => 100
+               }
+             ]
+    end
+
+    test "handles multiple segment filters", %{conn: conn, site: site, user: user} do
+      %{id: segment_alfa} =
+        insert(:segment,
+          site_id: site.id,
+          owner_id: user.id,
+          name: "Ireland and Britain (excl London)",
+          type: :site,
+          segment_data: %{
+            "filters" => [
+              ["is", "visit:country", ["IE", "GB"]],
+              ["is_not", "visit:city", [2_643_743]]
+            ]
+          }
+        )
+
+      %{id: segment_beta} =
+        insert(:segment,
+          site_id: site.id,
+          owner_id: user.id,
+          name: "Entered on root or blog",
+          type: :personal,
+          segment_data: %{
+            "filters" => [
+              ["is", "visit:entry_page", ["/", "/blog"]]
+            ]
+          }
+        )
+
+      populate_stats(site, [
+        build(:pageview, country_code: "EE"),
+        build(:pageview,
+          country_code: "GB",
+          # London
+          city_geoname_id: 2_643_743
+        ),
+        build(:pageview,
+          country_code: "GB",
+          # London
+          city_geoname_id: 2_643_743
+        ),
+        build(:pageview, country_code: "GB"),
+        build(:pageview, country_code: "IE", pathname: "/other"),
+        build(:pageview, country_code: "IE")
+      ])
+
+      filters =
+        Jason.encode!([["is", "segment", [segment_alfa]], ["is", "segment", [segment_beta]]])
+
+      conn = get(conn, "/api/stats/#{site.domain}/countries?period=day&filters=#{filters}")
+
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "code" => "GB",
+                 "alpha_3" => "GBR",
+                 "name" => "United Kingdom",
+                 "flag" => "🇬🇧",
+                 "visitors" => 1,
+                 "percentage" => 50
+               },
+               %{
+                 "code" => "IE",
+                 "alpha_3" => "IRL",
+                 "name" => "Ireland",
+                 "flag" => "🇮🇪",
+                 "visitors" => 1,
+                 "percentage" => 50
                }
              ]
     end

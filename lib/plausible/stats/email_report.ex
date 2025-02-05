@@ -19,15 +19,17 @@ defmodule Plausible.Stats.EmailReport do
   def get(site, query) do
     metrics = [:pageviews, :visitors, :bounce_rate]
 
-    Stats.aggregate(site, query, metrics)
+    %{results: results} = Stats.aggregate(site, query, metrics)
+
+    results
     |> with_comparisons(site, query, metrics)
     |> put_top_5_pages(site, query)
     |> put_top_5_sources(site, query)
   end
 
   defp with_comparisons(stats, site, query, metrics) do
-    {:ok, prev_query} = Comparisons.compare(site, query, "previous_period")
-    prev_period_stats = Stats.aggregate(site, prev_query, metrics)
+    comparison_query = Comparisons.get_comparison_query(query, %{mode: "previous_period"})
+    %{results: prev_period_stats} = Stats.aggregate(site, comparison_query, metrics)
 
     stats
     |> Enum.map(fn {metric, %{value: value}} ->
@@ -40,13 +42,18 @@ defmodule Plausible.Stats.EmailReport do
   end
 
   defp put_top_5_pages(stats, site, query) do
-    pages = Stats.breakdown(site, query, "event:page", [:visitors], {5, 1})
+    query = Query.set(query, dimensions: ["event:page"])
+    %{results: pages} = Stats.breakdown(site, query, [:visitors], {5, 1})
     Map.put(stats, :pages, pages)
   end
 
   defp put_top_5_sources(stats, site, query) do
-    query = Query.put_filter(query, "visit:source", {:is_not, "Direct / None"})
-    sources = Stats.breakdown(site, query, "visit:source", [:visitors], {5, 1})
+    query =
+      query
+      |> Query.add_filter([:is_not, "visit:source", ["Direct / None"]])
+      |> Query.set(dimensions: ["visit:source"])
+
+    %{results: sources} = Stats.breakdown(site, query, [:visitors], {5, 1})
 
     Map.put(stats, :sources, sources)
   end

@@ -1,129 +1,75 @@
-import React, { useEffect, useState } from "react";
-import { Link } from 'react-router-dom'
-import { withRouter } from 'react-router-dom'
+import React, { useCallback, useState } from "react";
 
 import Modal from './modal'
-import * as api from '../../api'
-import * as url from "../../util/url";
-import numberFormatter from '../../util/number-formatter'
-import { parseQuery } from '../../query'
-import { escapeFilterValue } from '../../util/filters'
+import BreakdownModal from "./breakdown-modal";
+import * as metrics from "../reports/metrics";
+import * as url from '../../util/url';
+import { useSiteContext } from "../../site-context";
+import { addFilter } from "../../query";
 
 /*global BUILD_EXTRA*/
-/*global require*/
-function maybeRequire() {
-  if (BUILD_EXTRA) {
-    return require('../../extra/money')
-  } else {
-    return { default: null }
+function ConversionsModal() {
+  const [showRevenue, setShowRevenue] = useState(false)
+  const site = useSiteContext();
+
+  const reportInfo = {
+    title: 'Goal Conversions',
+    dimension: 'goal',
+    endpoint: url.apiPath(site, '/conversions'),
+    dimensionLabel: "Goal",
+    defaultOrder: []
   }
-}
 
-const Money = maybeRequire().default
+  const getFilterInfo = useCallback((listItem) => {
+    return {
+      prefix: reportInfo.dimension,
+      filter: ["is", reportInfo.dimension, [listItem.name]]
+    }
+  }, [reportInfo.dimension])
 
-function ConversionsModal(props) {
-  const site = props.site
-  const query = parseQuery(props.location.search, site)
+  const addSearchFilter = useCallback((query, searchString) => {
+    return addFilter(query, ['contains', reportInfo.dimension, [searchString], { case_sensitive: false }])
+  }, [reportInfo.dimension])
 
-  const [loading, setLoading] = useState(true)
-  const [moreResultsAvailable, setMoreResultsAvailable] = useState(false)
-  const [page, setPage] = useState(1)
-  const [list, setList] = useState([])
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ renderLabel: (_query) => "Uniques" }),
+      metrics.createEvents({ renderLabel: (_query) => "Total" }),
+      metrics.createConversionRate(),
+      showRevenue && metrics.createAverageRevenue(),
+      showRevenue && metrics.createTotalRevenue(),
+    ].filter(metric => !!metric)
+  }
 
-  useEffect(() => {
-    fetchData()
+  // After a successful API response, we want to scan the rows of the
+  // response and update the internal `showRevenue` state, which decides
+  // whether revenue metrics are passed into BreakdownModal in `metrics`.
+  const afterFetchData = useCallback((res) => {
+    setShowRevenue(revenueInResponse(res))
   }, [])
 
-  function fetchData() {
-    api.get(url.apiPath(site, `/conversions`), query, { limit: 100, page })
-      .then((res) => {
-        setLoading(false)
-        setList(list.concat(res))
-        setPage(page + 1)
-        setMoreResultsAvailable(res.length >= 100)
-      })
-  }
+  // After fetching the next page, we never want to set `showRevenue` to
+  // `false` as revenue metrics might exist in previously loaded data.
+  const afterFetchNextPage = useCallback((res) => {
+    if (!showRevenue && revenueInResponse(res)) { setShowRevenue(true) }
+  }, [showRevenue])
 
-  function loadMore() {
-    setLoading(true)
-    fetchData()
-  }
-
-  function renderLoadMore() {
-    return (
-      <div className="w-full text-center my-4">
-        <button onClick={loadMore} type="button" className="button">
-          Load more
-        </button>
-      </div>
-    )
-  }
-
-  function filterSearchLink(listItem) {
-    const searchParams = new URLSearchParams(window.location.search)
-    searchParams.set('goal', escapeFilterValue(listItem.name))
-    return searchParams.toString()
-  }
-
-  function renderListItem(listItem, hasRevenue) {
-    return (
-      <tr className="text-sm dark:text-gray-200" key={listItem.name}>
-        <td className="p-2">
-          <Link
-            to={{ pathname: url.siteBasePath(site), search: filterSearchLink(listItem) }}
-            className="hover:underline block truncate">
-            {listItem.name}
-          </Link>
-        </td>
-        <td className="p-2 w-24 font-medium" align="right">{numberFormatter(listItem.visitors)}</td>
-        <td className="p-2 w-24 font-medium" align="right">{numberFormatter(listItem.events)}</td>
-        <td className="p-2 w-24 font-medium" align="right">{listItem.conversion_rate}%</td>
-        {hasRevenue && <td className="p-2 w-24 font-medium" align="right"><Money formatted={listItem.total_revenue} /></td>}
-        {hasRevenue && <td className="p-2 w-24 font-medium" align="right"><Money formatted={listItem.average_revenue} /></td>}
-      </tr>
-    )
-  }
-
-  function renderLoading() {
-    return <div className="loading my-16 mx-auto"><div></div></div>
-  }
-
-  function renderBody() {
-    const hasRevenue = BUILD_EXTRA && list.some((goal) => goal.total_revenue)
-
-    return (
-      <>
-        <h1 className="text-xl font-bold dark:text-gray-100">Goal Conversions</h1>
-
-        <div className="my-4 border-b border-gray-300"></div>
-        <main className="modal__content">
-          <table className="w-max overflow-x-auto md:w-full table-striped table-fixed">
-            <thead>
-              <tr>
-                <th className="p-2 w-48 md:w-56 lg:w-1/3 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400 truncate" align="left">Goal</th>
-                <th className="p-2 w-24 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400" align="right">Uniques</th>
-                <th className="p-2 w-24 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400" align="right">Total</th>
-                <th className="p-2 w-24 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400" align="right">CR</th>
-                {hasRevenue && <th className="p-2 w-24 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400" align="right">Revenue</th>}
-                {hasRevenue && <th className="p-2 w-24 text-xs tracking-wide font-bold text-gray-500 dark:text-gray-400" align="right">Average</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((item) => renderListItem(item, hasRevenue))}
-            </tbody>
-          </table>
-        </main>
-      </>
-    )
+  function revenueInResponse(apiResponse) {
+    return apiResponse.results.some((item) => item.total_revenue)
   }
 
   return (
-    <Modal site={site}>
-      {renderBody()}
-      {loading && renderLoading()}
-      {!loading && moreResultsAvailable && renderLoadMore()}
+    <Modal>
+      <BreakdownModal
+        reportInfo={reportInfo}
+        metrics={chooseMetrics()}
+        afterFetchData={BUILD_EXTRA ? afterFetchData : undefined}
+        afterFetchNextPage={BUILD_EXTRA ? afterFetchNextPage : undefined}
+        getFilterInfo={getFilterInfo}
+        addSearchFilter={addSearchFilter}
+      />
     </Modal>
   )
 }
 
-export default withRouter(ConversionsModal)
+export default ConversionsModal

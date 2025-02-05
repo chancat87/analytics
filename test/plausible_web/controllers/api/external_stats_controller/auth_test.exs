@@ -1,5 +1,6 @@
 defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
   use PlausibleWeb.ConnCase
+  use Plausible.Teams.Test
 
   setup [:create_user, :create_api_key]
 
@@ -46,8 +47,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
   end
 
   test "locked site - returns 402", %{conn: conn, api_key: api_key, user: user} do
-    site = insert(:site, members: [user])
-    {:ok, 1} = Plausible.Billing.SiteLocker.set_lock_status_for(user, true)
+    site = new_site(owner: user, locked: true)
 
     conn
     |> with_api_key(api_key)
@@ -56,7 +56,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
   end
 
   test "can access with correct API key and site ID", %{conn: conn, user: user, api_key: api_key} do
-    site = insert(:site, members: [user])
+    site = new_site(owner: user)
 
     conn
     |> with_api_key(api_key)
@@ -67,13 +67,13 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
   end
 
   describe "super admin access" do
-    @describetag :full_build_only
+    @describetag :ee_only
     setup %{user: user} do
       patch_env(:super_admin_user_ids, [user.id])
     end
 
     test "can access as a super admin", %{conn: conn, api_key: api_key} do
-      site = insert(:site)
+      site = new_site()
 
       conn
       |> with_api_key(api_key)
@@ -88,8 +88,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
       api_key: api_key,
       user: user
     } do
-      site = insert(:site, members: [user])
-      {:ok, 1} = Plausible.Billing.SiteLocker.set_lock_status_for(user, true)
+      site = new_site(owner: user, locked: true)
 
       conn
       |> with_api_key(api_key)
@@ -131,7 +130,7 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
   } do
     old_domain = "old.example.com"
     new_domain = "new.example.com"
-    site = insert(:site, domain: old_domain, members: [user])
+    site = new_site(domain: old_domain, owner: user)
 
     Plausible.Site.Domain.change(site, new_domain)
 
@@ -150,13 +149,14 @@ defmodule PlausibleWeb.Api.ExternalStatsController.AuthTest do
     })
   end
 
+  @tag :ee_only
   test "returns HTTP 402 when user is on a growth plan", %{
     conn: conn,
     user: user,
     api_key: api_key
   } do
-    insert(:growth_subscription, user: user)
-    site = insert(:site, members: [user])
+    subscribe_to_growth_plan(user)
+    site = new_site(owner: user)
 
     conn
     |> with_api_key(api_key)

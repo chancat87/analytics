@@ -22,7 +22,7 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   and updates the suggestions asynchronously. This way, you can render
   the component without having to wait for suggestions to load.
 
-  If you explicitly need to make the operation sychronous, you may
+  If you explicitly need to make the operation synchronous, you may
   pass `async={false}` option.
 
   If your initial `options` are not provided up-front at initial render,
@@ -36,22 +36,24 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   ComboBox own test suite, so there is no need for additional
   verification.
   """
-  use Phoenix.LiveComponent, global_prefixes: ~w(x-)
-  alias Phoenix.LiveView.JS
+  use PlausibleWeb, :live_component
 
   @default_suggestions_limit 15
 
   def update(assigns, socket) do
-    socket = assign(socket, assigns)
+    socket =
+      socket
+      |> assign(assigns)
+      |> select_default()
 
     socket =
       if connected?(socket) do
         socket
         |> assign_options()
-        |> assign_suggestions()
       else
         socket
       end
+      |> assign_suggestions(assigns[:suggestions])
 
     {:ok, socket}
   end
@@ -62,21 +64,19 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   attr(:submit_name, :string, required: true)
   attr(:display_value, :string, default: "")
   attr(:submit_value, :string, default: "")
+  attr(:selected, :any)
   attr(:suggest_fun, :any, required: true)
   attr(:suggestions_limit, :integer)
   attr(:class, :string, default: "")
+  attr(:clear_on_select, :boolean, default: false)
   attr(:required, :boolean, default: false)
   attr(:creatable, :boolean, default: false)
+  attr(:creatable_prompt, :string, default: "Create")
   attr(:errors, :list, default: [])
   attr(:async, :boolean, default: Mix.env() != :test)
   attr(:on_selection_made, :any)
 
   def render(assigns) do
-    assigns =
-      assign_new(assigns, :suggestions, fn ->
-        Enum.take(assigns.options, suggestions_limit(assigns))
-      end)
-
     ~H"""
     <div
       id={"input-picker-main-#{@id}"}
@@ -100,17 +100,21 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
             name={"display-#{@id}"}
             placeholder={@placeholder}
             x-on:focus="open"
+            x-on:selection-change={assigns[:"x-on-selection-change"]}
             phx-change="search"
+            x-on:keydown="open"
             phx-target={@myself}
             phx-debounce={200}
             value={@display_value}
-            class="[&.phx-change-loading+svg.spinner]:block border-none py-1 px-1 p-0 w-full inline-block rounded-md focus:outline-none focus:ring-0 text-sm"
+            class="text-sm [&.phx-change-loading+svg.spinner]:block border-none py-1 px-1 p-0 w-full inline-block rounded-md focus:outline-none focus:ring-0"
             style="background-color: inherit;"
             required={@required}
           />
 
-          <PlausibleWeb.Components.Generic.spinner class="spinner hidden absolute inset-y-3 right-8" />
-          <PlausibleWeb.Components.Generic.spinner
+          <.spinner class="spinner hidden absolute inset-y-3 right-8" />
+          <.spinner
+            id={"selection-in-progress-#{@id}"}
+            phx-update="ignore"
             x-show="selectionInProgress"
             class="spinner absolute inset-y-3 right-8"
           />
@@ -119,7 +123,7 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
 
           <input
             type="hidden"
-            x-init={"trackSubmitValueChange('#{@submit_value}')"}
+            x-init={"trackSubmitValueChange('#{Phoenix.HTML.javascript_escape(to_string(@submit_value))}')"}
             name={@submit_name}
             value={@submit_value}
             phx-target={@myself}
@@ -127,13 +131,14 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
           />
         </div>
 
-        <.dropdown
+        <.combo_dropdown
           ref={@id}
           suggest_fun={@suggest_fun}
           suggestions={@suggestions}
           target={@myself}
           creatable={@creatable}
           display_value={@display_value}
+          creatable_prompt={@creatable_prompt}
         />
       </div>
     </div>
@@ -168,16 +173,18 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   attr(:suggest_fun, :any, required: true)
   attr(:target, :any)
   attr(:creatable, :boolean, required: true)
+  attr(:creatable_prompt, :string, default: nil)
   attr(:display_value, :string, required: true)
 
-  def dropdown(assigns) do
+  def combo_dropdown(assigns) do
     ~H"""
     <ul
       tabindex="-1"
       id={"dropdown-#{@ref}"}
       x-show="isOpen"
       x-ref="suggestions"
-      class="w-full dropdown z-50 absolute mt-1 max-h-60 overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm dark:bg-gray-900"
+      class="text-sm w-full dropdown z-50 absolute mt-1 max-h-60 overflow-auto rounded-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none dark:bg-gray-900"
+      style="display: none;"
     >
       <.option
         :if={display_creatable_option?(assigns)}
@@ -187,6 +194,7 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
         target={@target}
         ref={@ref}
         creatable
+        creatable_prompt={@creatable_prompt}
       />
 
       <.option
@@ -227,6 +235,7 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   attr(:target, :any)
   attr(:idx, :integer, required: true)
   attr(:creatable, :boolean, default: false)
+  attr(:creatable_prompt, :string, required: false)
 
   def option(assigns) do
     assigns = assign(assigns, :suggestions_limit, suggestions_limit(assigns))
@@ -251,9 +260,9 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
         class="block truncate py-2 px-3"
       >
         <%= if @creatable do %>
-          Create "<%= @display_value %>"
+          {@creatable_prompt} "{@display_value}"
         <% else %>
-          <%= @display_value %>
+          {@display_value}
         <% end %>
       </a>
     </li>
@@ -263,8 +272,14 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
     """
   end
 
-  def select_option(js \\ %JS{}, _id, submit_value, display_value) do
+  def select_option(js \\ %JS{}, id, submit_value, display_value) do
     js
+    |> JS.dispatch("phx:notify-selection-change",
+      detail: %{
+        id: id,
+        value: %{"submitValue" => submit_value, "displayValue" => display_value}
+      }
+    )
     |> JS.push("select-option",
       value: %{"submit-value" => submit_value, "display-value" => display_value}
     )
@@ -309,6 +324,13 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
   defp do_select(socket, submit_value, display_value) do
     id = socket.assigns.id
 
+    display_value =
+      if socket.assigns[:clear_on_select] do
+        ""
+      else
+        display_value
+      end
+
     socket =
       socket
       |> push_event("update-value", %{id: id, value: display_value, fire: false})
@@ -342,14 +364,32 @@ defmodule PlausibleWeb.Live.Components.ComboBox do
     end)
   end
 
-  defp assign_suggestions(socket) do
-    if socket.assigns[:suggestions] do
-      assign(
-        socket,
-        suggestions: Enum.take(socket.assigns.suggestions, suggestions_limit(socket.assigns))
-      )
-    else
-      socket
+  defp assign_suggestions(socket, nil = _suggestions_from_update) do
+    suggestions =
+      socket.assigns
+      |> Map.get(:options, [])
+      |> Enum.take(suggestions_limit(socket.assigns))
+
+    assign(socket, suggestions: suggestions)
+  end
+
+  defp assign_suggestions(socket, _suggestions_from_update) do
+    socket
+  end
+
+  defp select_default(socket) do
+    case {socket.assigns[:selected], socket.assigns[:submit_value]} do
+      {{submit_value, display_value}, nil} ->
+        assign(socket, submit_value: submit_value, display_value: display_value)
+
+      {submit_and_display_value, nil} when is_binary(submit_and_display_value) ->
+        assign(socket,
+          submit_value: submit_and_display_value,
+          display_value: submit_and_display_value
+        )
+
+      _ ->
+        socket
     end
   end
 

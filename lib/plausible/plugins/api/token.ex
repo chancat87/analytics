@@ -64,7 +64,7 @@ defmodule Plausible.Plugins.API.Token do
   can scan repositories for accidental secret commits.
   """
   def prefix() do
-    on_full_build do
+    on_ee do
       env = Application.get_env(:plausible, :environment)
 
       case env do
@@ -81,7 +81,7 @@ defmodule Plausible.Plugins.API.Token do
     diff =
       if token.last_used_at do
         now = NaiveDateTime.utc_now()
-        Timex.diff(now, token.last_used_at, :minutes)
+        NaiveDateTime.diff(now, token.last_used_at, :minute)
       end
 
     cond do

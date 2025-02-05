@@ -2,7 +2,6 @@ defmodule Plausible.Stats.Goal.Revenue do
   @moduledoc """
   Revenue specific functions for the stats scope
   """
-  import Ecto.Query
 
   @revenue_metrics [:average_revenue, :total_revenue]
 
@@ -10,88 +9,82 @@ defmodule Plausible.Stats.Goal.Revenue do
     @revenue_metrics
   end
 
-  def total_revenue_query(query) do
-    from(e in query,
-      select_merge: %{
-        total_revenue:
-          fragment("toDecimal64(sum(?) * any(_sample_factor), 3)", e.revenue_reporting_amount)
-      }
-    )
-  end
-
-  def average_revenue_query(query) do
-    from(e in query,
-      select_merge: %{
-        average_revenue:
-          fragment("toDecimal64(avg(?) * any(_sample_factor), 3)", e.revenue_reporting_amount)
-      }
-    )
-  end
-
-  @spec get_revenue_tracking_currency(Plausible.Site.t(), Plausible.Stats.Query.t(), [atom()]) ::
-          {atom() | nil, [atom()]}
   @doc """
-  Returns the common currency for the goal filters in a query. If there are no
-  goal filters, multiple currencies or the site owner does not have access to
-  revenue goals, `nil` is returned and revenue metrics are dropped.
+  Preloads revenue currencies for a query. Used when parsing the query.
 
-  Aggregating revenue data works only for same currency goals. If the query is
-  filtered by goals with different currencies, for example, one USD and other
-  EUR, revenue metrics are dropped.
+  Returns tuple containing revenue warning (if set, no revenue metrics should be calculated) and
+  revenue currencies map.
+
+  Assumptions and business logic:
+  1. Goals are already filtered according to query filters and dimensions
+  2. If there's a single currency involved, return map containing the default
+  3. If there's a breakdown by event:goal we return all the relevant currencies as a map
+  4. If filtering by multiple different currencies without event:goal breakdown empty map is returned
+  5. If user has no access or preloading is not needed, empty map is returned
+
+  The resulting data structure is attached to a `Query` and used below in `format_revenue_metric/3`.
   """
-  def get_revenue_tracking_currency(site, query, metrics) do
-    goal_filters =
-      case query.filters do
-        %{"event:goal" => {:is, {_, goal_name}}} -> [goal_name]
-        %{"event:goal" => {:member, list}} -> Enum.map(list, fn {_, goal_name} -> goal_name end)
-        _any -> []
-      end
-
-    requested_revenue_metrics? = Enum.any?(metrics, &(&1 in @revenue_metrics))
-    filtering_by_goal? = Enum.any?(goal_filters)
-
-    revenue_goals_available? = fn ->
-      site = Plausible.Repo.preload(site, :owner)
-      Plausible.Billing.Feature.RevenueGoals.check_availability(site.owner) == :ok
+  def preload(site, preloaded_goals, metrics, dimensions) do
+    cond do
+      not requested?(metrics) -> {nil, %{}}
+      not available?(site) -> {:revenue_goals_unavailable, %{}}
+      true -> preload(preloaded_goals.matching_toplevel_filters, dimensions)
     end
+  end
 
-    if requested_revenue_metrics? && filtering_by_goal? && revenue_goals_available?.() do
-      revenue_goals_currencies =
-        Plausible.Repo.all(
-          from rg in Ecto.assoc(site, :revenue_goals),
-            where: rg.event_name in ^goal_filters,
-            select: rg.currency,
-            distinct: true
-        )
+  defp preload(goals, dimensions) do
+    goal_currency_map =
+      goals
+      |> Map.new(fn goal -> {Plausible.Goal.display_name(goal), goal.currency} end)
+      |> Map.reject(fn {_goal, currency} -> is_nil(currency) end)
 
-      if length(revenue_goals_currencies) == 1,
-        do: {List.first(revenue_goals_currencies), metrics},
-        else: {nil, metrics -- @revenue_metrics}
+    currencies = goal_currency_map |> Map.values() |> Enum.uniq()
+    goal_dimension? = "event:goal" in dimensions
+
+    case {currencies, goal_dimension?} do
+      {[currency], false} -> {nil, %{default: currency}}
+      {[], _} -> {:no_revenue_goals_matching, %{}}
+      {_, true} -> {nil, goal_currency_map}
+      _ -> {:no_single_revenue_currency, %{}}
+    end
+  end
+
+  def format_revenue_metric(_, query, _) when not is_nil(query.revenue_warning), do: nil
+
+  def format_revenue_metric(value, query, dimension_values) do
+    currency =
+      query.revenue_currencies[:default] ||
+        get_goal_dimension_revenue_currency(query, dimension_values)
+
+    if currency do
+      money = Money.new!(value || 0, currency)
+
+      %{
+        short: Money.to_string!(money, format: :short, fractional_digits: 1),
+        long: Money.to_string!(money),
+        value: Decimal.to_float(money.amount),
+        currency: currency
+      }
     else
-      {nil, metrics -- @revenue_metrics}
+      value
     end
   end
 
-  def cast_revenue_metrics_to_money([%{goal: _goal} | _rest] = results, revenue_goals)
-      when is_list(revenue_goals) do
-    for result <- results do
-      if matching_goal = Enum.find(revenue_goals, &(&1.event_name == result.goal)) do
-        cast_revenue_metrics_to_money(result, matching_goal.currency)
-      else
-        result
-      end
-    end
+  def available?(site) do
+    site = Plausible.Repo.preload(site, :team)
+    Plausible.Billing.Feature.RevenueGoals.check_availability(site.team) == :ok
   end
 
-  def cast_revenue_metrics_to_money(results, currency) when is_map(results) do
-    for {metric, value} <- results, into: %{} do
-      if metric in @revenue_metrics && currency do
-        {metric, Money.new!(value || 0, currency)}
-      else
-        {metric, value}
-      end
-    end
-  end
+  # :NOTE: Legacy queries don't have metrics associated with them so work around the issue by assuming
+  #   revenue metric was requested.
+  def requested?([]), do: true
+  def requested?(metrics), do: Enum.any?(metrics, &(&1 in @revenue_metrics))
 
-  def cast_revenue_metrics_to_money(results, _), do: results
+  defp get_goal_dimension_revenue_currency(query, dimension_values) do
+    Enum.zip(query.dimensions, dimension_values)
+    |> Enum.find_value(fn
+      {"event:goal", goal_label} -> Map.get(query.revenue_currencies, goal_label)
+      _ -> nil
+    end)
+  end
 end

@@ -1,0 +1,19 @@
+{
+  "clearMocks": true,
+  "coverageDirectory": "coverage",
+  "coverageProvider": "v8",
+  "testEnvironment": "jsdom",
+  "globals": {
+    "BUILD_EXTRA": true
+  },
+  "setupFilesAfterEnv": [
+    "<rootDir>/test-utils/extend-expect.ts",
+    "<rootDir>/test-utils/reset-state.ts"
+  ],
+  "transform": {
+    "^.+.[tj]sx?$": ["ts-jest", {}]
+  },
+  "moduleNameMapper": {
+    "d3": "<rootDir>/node_modules/d3/dist/d3.min.js"
+  }
+}

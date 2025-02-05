@@ -2,9 +2,9 @@ defmodule PlausibleWeb.AuthController do
   use PlausibleWeb, :controller
   use Plausible.Repo
 
-  alias Plausible.{Auth, RateLimit}
-  alias Plausible.Billing.Quota
+  alias Plausible.Auth
   alias PlausibleWeb.TwoFactor
+  alias PlausibleWeb.UserAuth
 
   require Logger
 
@@ -25,13 +25,6 @@ defmodule PlausibleWeb.AuthController do
   plug(
     PlausibleWeb.RequireAccountPlug
     when action in [
-           :user_settings,
-           :save_settings,
-           :update_email,
-           :cancel_update_email,
-           :new_api_key,
-           :create_api_key,
-           :delete_api_key,
            :delete_me,
            :activate_form,
            :activate,
@@ -54,52 +47,30 @@ defmodule PlausibleWeb.AuthController do
          ]
   )
 
+  # Plug purging 2FA user session cookie outsite 2FA flow
   defp clear_2fa_user(conn, _opts) do
     TwoFactor.Session.clear_2fa_user(conn)
   end
 
-  def register(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    with {:ok, user} <- login_user(conn, email, password) do
-      conn = set_user_session(conn, user)
-
-      if user.email_verified do
-        redirect(conn, to: Routes.site_path(conn, :new))
-      else
-        Auth.EmailVerification.issue_code(user)
-        redirect(conn, to: Routes.auth_path(conn, :activate_form))
-      end
-    end
-  end
-
-  def register_from_invitation(conn, %{"user" => %{"email" => email, "password" => password}}) do
-    with {:ok, user} <- login_user(conn, email, password) do
-      conn = set_user_session(conn, user)
-
-      if user.email_verified do
-        redirect(conn, to: Routes.site_path(conn, :index))
-      else
-        Auth.EmailVerification.issue_code(user)
-        redirect(conn, to: Routes.auth_path(conn, :activate_form))
-      end
-    end
-  end
-
-  def activate_form(conn, _params) do
+  def activate_form(conn, params) do
     user = conn.assigns.current_user
+    flow = params["flow"] || PlausibleWeb.Flows.register()
 
     render(conn, "activate.html",
+      error: nil,
       has_email_code?: Plausible.Users.has_email_code?(user),
-      has_any_invitations?: Plausible.Site.Memberships.pending?(user.email),
-      has_any_memberships?: Plausible.Site.Memberships.any?(user),
-      layout: {PlausibleWeb.LayoutView, "focus.html"}
+      has_any_memberships?: Plausible.Teams.Users.has_sites?(user),
+      form_submit_url: "/activate?flow=#{flow}"
     )
   end
 
   def activate(conn, %{"code" => code}) do
     user = conn.assigns[:current_user]
 
-    has_any_invitations? = Plausible.Site.Memberships.pending?(user.email)
-    has_any_memberships? = Plausible.Site.Memberships.any?(user)
+    has_any_invitations? = Plausible.Teams.Users.has_sites?(user, include_pending?: true)
+    has_any_memberships? = Plausible.Teams.Users.has_sites?(user, include_pending?: false)
+
+    flow = conn.params["flow"]
 
     case Auth.EmailVerification.verify_code(user, code) do
       :ok ->
@@ -108,28 +79,26 @@ defmodule PlausibleWeb.AuthController do
             handle_email_updated(conn)
 
           has_any_invitations? ->
-            redirect(conn, to: Routes.site_path(conn, :index))
+            redirect(conn, to: Routes.site_path(conn, :index, flow: flow))
 
           true ->
-            redirect(conn, to: Routes.site_path(conn, :new))
+            redirect(conn, to: Routes.site_path(conn, :new, flow: flow))
         end
 
       {:error, :incorrect} ->
         render(conn, "activate.html",
           error: "Incorrect activation code",
           has_email_code?: true,
-          has_any_invitations?: has_any_invitations?,
           has_any_memberships?: has_any_memberships?,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
+          form_submit_url: "/activate?flow=#{flow}"
         )
 
       {:error, :expired} ->
         render(conn, "activate.html",
           error: "Code is expired, please request another one",
           has_email_code?: false,
-          has_any_invitations?: has_any_invitations?,
           has_any_memberships?: has_any_memberships?,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
+          form_submit_url: "/activate?flow=#{flow}"
         )
     end
   end
@@ -144,16 +113,11 @@ defmodule PlausibleWeb.AuthController do
   end
 
   def password_reset_request_form(conn, _) do
-    render(conn, "password_reset_request_form.html",
-      layout: {PlausibleWeb.LayoutView, "focus.html"}
-    )
+    render(conn, "password_reset_request_form.html")
   end
 
   def password_reset_request(conn, %{"email" => ""}) do
-    render(conn, "password_reset_request_form.html",
-      error: "Please enter an email address",
-      layout: {PlausibleWeb.LayoutView, "focus.html"}
-    )
+    render(conn, "password_reset_request_form.html", error: "Please enter an email address")
   end
 
   def password_reset_request(conn, %{"email" => email} = params) do
@@ -170,20 +134,13 @@ defmodule PlausibleWeb.AuthController do
           "Password reset e-mail sent. In dev environment GET /sent-emails for details."
         )
 
-        render(conn, "password_reset_request_success.html",
-          email: email,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
+        render(conn, "password_reset_request_success.html", email: email)
       else
-        render(conn, "password_reset_request_success.html",
-          email: email,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
+        render(conn, "password_reset_request_success.html", email: email)
       end
     else
       render(conn, "password_reset_request_form.html",
-        error: "Please complete the captcha to reset your password",
-        layout: {PlausibleWeb.LayoutView, "focus.html"}
+        error: "Please complete the captcha to reset your password"
       )
     end
   end
@@ -193,8 +150,7 @@ defmodule PlausibleWeb.AuthController do
       {:ok, %{email: email}} ->
         render(conn, "password_reset_form.html",
           connect_live_socket: true,
-          email: email,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
+          email: email
         )
 
       {:error, :expired} ->
@@ -215,142 +171,88 @@ defmodule PlausibleWeb.AuthController do
 
   def password_reset(conn, _params) do
     conn
+    |> UserAuth.log_out_user()
     |> put_flash(:login_title, "Password updated successfully")
     |> put_flash(:login_instructions, "Please log in with your new credentials")
-    |> put_session(:current_user_id, nil)
-    |> delete_resp_cookie("logged_in")
     |> redirect(to: Routes.auth_path(conn, :login_form))
   end
 
-  def login(conn, %{"email" => email, "password" => password}) do
-    with {:ok, user} <- login_user(conn, email, password) do
-      if Auth.TOTP.enabled?(user) and not TwoFactor.Session.remember_2fa?(conn, user) do
-        conn
-        |> TwoFactor.Session.set_2fa_user(user)
-        |> redirect(to: Routes.auth_path(conn, :verify_2fa))
-      else
-        set_user_session_and_redirect(conn, user)
-      end
-    end
+  def login_form(conn, _params) do
+    render(conn, "login_form.html")
   end
 
-  defp login_user(conn, email, password) do
-    with :ok <- check_ip_rate_limit(conn),
-         {:ok, user} <- find_user(email),
-         :ok <- check_user_rate_limit(user),
-         :ok <- check_password(user, password) do
-      {:ok, user}
+  def login(conn, %{"user" => params}) do
+    login(conn, params)
+  end
+
+  def login(conn, %{"email" => email, "password" => password} = params) do
+    with :ok <- Auth.rate_limit(:login_ip, conn),
+         {:ok, user} <- Auth.get_user_by(email: email),
+         :ok <- Auth.rate_limit(:login_user, user),
+         :ok <- Auth.check_password(user, password),
+         :ok <- check_2fa_verified(conn, user) do
+      redirect_path =
+        cond do
+          not is_nil(params["register_action"]) and not user.email_verified ->
+            Auth.EmailVerification.issue_code(user)
+
+            flow =
+              if params["register_action"] == "register_form" do
+                PlausibleWeb.Flows.register()
+              else
+                PlausibleWeb.Flows.invitation()
+              end
+
+            Routes.auth_path(conn, :activate_form, flow: flow)
+
+          params["register_action"] == "register_from_invitation_form" ->
+            Routes.site_path(conn, :index)
+
+          params["register_action"] == "register_form" ->
+            Routes.site_path(conn, :new)
+
+          true ->
+            params["return_to"]
+        end
+
+      UserAuth.log_in_user(conn, user, redirect_path)
     else
-      :wrong_password ->
+      {:error, :wrong_password} ->
         maybe_log_failed_login_attempts("wrong password for #{email}")
 
-        render(conn, "login_form.html",
-          error: "Wrong email or password. Please try again.",
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
+        render(conn, "login_form.html", error: "Wrong email or password. Please try again.")
 
-      :user_not_found ->
+      {:error, :user_not_found} ->
         maybe_log_failed_login_attempts("user not found for #{email}")
         Plausible.Auth.Password.dummy_calculation()
 
-        render(conn, "login_form.html",
-          error: "Wrong email or password. Please try again.",
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
+        render(conn, "login_form.html", error: "Wrong email or password. Please try again.")
 
-      {:rate_limit, _} ->
-        maybe_log_failed_login_attempts("too many logging attempts for #{email}")
+      {:error, {:rate_limit, _}} ->
+        maybe_log_failed_login_attempts("too many login attempts for #{email}")
 
         render_error(
           conn,
           429,
           "Too many login attempts. Wait a minute before trying again."
         )
+
+      {:error, {:unverified_2fa, user}} ->
+        query_params =
+          if params["return_to"] not in [nil, ""], do: [return_to: params["return_to"]], else: []
+
+        conn
+        |> TwoFactor.Session.set_2fa_user(user)
+        |> redirect(to: Routes.auth_path(conn, :verify_2fa, query_params))
     end
   end
 
-  defp redirect_to_login(conn) do
-    redirect(conn, to: Routes.auth_path(conn, :login_form))
-  end
-
-  defp set_user_session_and_redirect(conn, user) do
-    login_dest = get_session(conn, :login_dest) || Routes.site_path(conn, :index)
-
-    conn
-    |> set_user_session(user)
-    |> put_session(:login_dest, nil)
-    |> redirect(external: login_dest)
-  end
-
-  defp set_user_session(conn, user) do
-    conn
-    |> TwoFactor.Session.clear_2fa_user()
-    |> put_session(:current_user_id, user.id)
-    |> put_resp_cookie("logged_in", "true",
-      http_only: false,
-      max_age: 60 * 60 * 24 * 365 * 5000
-    )
-  end
-
-  defp maybe_log_failed_login_attempts(message) do
-    if Application.get_env(:plausible, :log_failed_login_attempts) do
-      Logger.warning("[login] #{message}")
-    end
-  end
-
-  @login_interval 60_000
-  @login_limit 5
-  @email_change_limit 2
-  @email_change_interval :timer.hours(1)
-
-  defp check_ip_rate_limit(conn) do
-    ip_address = PlausibleWeb.RemoteIP.get(conn)
-
-    case RateLimit.check_rate("login:ip:#{ip_address}", @login_interval, @login_limit) do
-      {:allow, _} -> :ok
-      {:deny, _} -> {:rate_limit, :ip_address}
-    end
-  end
-
-  defp check_user_rate_limit(user) do
-    case RateLimit.check_rate("login:user:#{user.id}", @login_interval, @login_limit) do
-      {:allow, _} -> :ok
-      {:deny, _} -> {:rate_limit, :user}
-    end
-  end
-
-  defp find_user(email) do
-    user =
-      Repo.one(
-        from(u in Plausible.Auth.User,
-          where: u.email == ^email
-        )
-      )
-
-    if user, do: {:ok, user}, else: :user_not_found
-  end
-
-  defp check_password(user, password) do
-    if Plausible.Auth.Password.match?(password, user.password_hash || "") do
-      :ok
+  defp check_2fa_verified(conn, user) do
+    if Auth.TOTP.enabled?(user) and not TwoFactor.Session.remember_2fa?(conn, user) do
+      {:error, {:unverified_2fa, user}}
     else
-      :wrong_password
+      :ok
     end
-  end
-
-  def login_form(conn, _params) do
-    render(conn, "login_form.html", layout: {PlausibleWeb.LayoutView, "focus.html"})
-  end
-
-  def user_settings(conn, _params) do
-    user = conn.assigns.current_user
-    settings_changeset = Auth.User.settings_changeset(user)
-    email_changeset = Auth.User.settings_changeset(user)
-
-    render_settings(conn,
-      settings_changeset: settings_changeset,
-      email_changeset: email_changeset
-    )
   end
 
   def initiate_2fa_setup(conn, _params) do
@@ -361,7 +263,7 @@ defmodule PlausibleWeb.AuthController do
       {:error, :already_setup} ->
         conn
         |> put_flash(:error, "Two-Factor Authentication is already setup for this account.")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
     end
   end
 
@@ -369,7 +271,7 @@ defmodule PlausibleWeb.AuthController do
     if Auth.TOTP.initiated?(conn.assigns.current_user) do
       render(conn, "verify_2fa_setup.html")
     else
-      redirect(conn, to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+      redirect(conn, to: Routes.settings_path(conn, :security) <> "#update-2fa")
     end
   end
 
@@ -388,7 +290,7 @@ defmodule PlausibleWeb.AuthController do
       {:error, :not_initiated} ->
         conn
         |> put_flash(:error, "Please enable Two-Factor Authentication for this account first.")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
     end
   end
 
@@ -398,12 +300,12 @@ defmodule PlausibleWeb.AuthController do
         conn
         |> TwoFactor.Session.clear_remember_2fa()
         |> put_flash(:success, "Two-Factor Authentication is disabled")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
 
       {:error, :invalid_password} ->
         conn
         |> put_flash(:error, "Incorrect password provided")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
     end
   end
 
@@ -417,22 +319,21 @@ defmodule PlausibleWeb.AuthController do
       {:error, :invalid_password} ->
         conn
         |> put_flash(:error, "Incorrect password provided")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
 
       {:error, :not_enabled} ->
         conn
         |> put_flash(:error, "Please enable Two-Factor Authentication for this account first.")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#setup-2fa")
+        |> redirect(to: Routes.settings_path(conn, :security) <> "#update-2fa")
     end
   end
 
-  def verify_2fa_form(conn, _) do
+  def verify_2fa_form(conn, _params) do
     case TwoFactor.Session.get_2fa_user(conn) do
       {:ok, user} ->
         if Auth.TOTP.enabled?(user) do
           render(conn, "verify_2fa.html",
-            remember_2fa_days: TwoFactor.Session.remember_2fa_days(),
-            layout: {PlausibleWeb.LayoutView, "focus.html"}
+            remember_2fa_days: TwoFactor.Session.remember_2fa_days()
           )
         else
           redirect_to_login(conn)
@@ -449,7 +350,7 @@ defmodule PlausibleWeb.AuthController do
         {:ok, user} ->
           conn
           |> TwoFactor.Session.maybe_set_remember_2fa(user, params["remember_2fa"])
-          |> set_user_session_and_redirect(user)
+          |> UserAuth.log_in_user(user, params["return_to"])
 
         {:error, :invalid_code} ->
           maybe_log_failed_login_attempts(
@@ -459,12 +360,11 @@ defmodule PlausibleWeb.AuthController do
           conn
           |> put_flash(:error, "The provided code is invalid. Please try again")
           |> render("verify_2fa.html",
-            remember_2fa_days: TwoFactor.Session.remember_2fa_days(),
-            layout: {PlausibleWeb.LayoutView, "focus.html"}
+            remember_2fa_days: TwoFactor.Session.remember_2fa_days()
           )
 
         {:error, :not_enabled} ->
-          set_user_session_and_redirect(conn, user)
+          UserAuth.log_in_user(conn, user, params["return_to"])
       end
     end
   end
@@ -473,9 +373,7 @@ defmodule PlausibleWeb.AuthController do
     case TwoFactor.Session.get_2fa_user(conn) do
       {:ok, user} ->
         if Auth.TOTP.enabled?(user) do
-          render(conn, "verify_2fa_recovery_code.html",
-            layout: {PlausibleWeb.LayoutView, "focus.html"}
-          )
+          render(conn, "verify_2fa_recovery_code.html")
         else
           redirect_to_login(conn)
         end
@@ -489,19 +387,17 @@ defmodule PlausibleWeb.AuthController do
     with {:ok, user} <- get_2fa_user_limited(conn) do
       case Auth.TOTP.use_recovery_code(user, recovery_code) do
         :ok ->
-          set_user_session_and_redirect(conn, user)
+          UserAuth.log_in_user(conn, user)
 
         {:error, :invalid_code} ->
           maybe_log_failed_login_attempts("wrong 2FA recovery code provided for #{user.email}")
 
           conn
           |> put_flash(:error, "The provided recovery code is invalid. Please try another one")
-          |> render("verify_2fa_recovery_code.html",
-            layout: {PlausibleWeb.LayoutView, "focus.html"}
-          )
+          |> render("verify_2fa_recovery_code.html")
 
         {:error, :not_enabled} ->
-          set_user_session_and_redirect(conn, user)
+          UserAuth.log_in_user(conn, user)
       end
     end
   end
@@ -509,12 +405,12 @@ defmodule PlausibleWeb.AuthController do
   defp get_2fa_user_limited(conn) do
     case TwoFactor.Session.get_2fa_user(conn) do
       {:ok, user} ->
-        with :ok <- check_ip_rate_limit(conn),
-             :ok <- check_user_rate_limit(user) do
+        with :ok <- Auth.rate_limit(:login_ip, conn),
+             :ok <- Auth.rate_limit(:login_user, user) do
           {:ok, user}
         else
-          {:rate_limit, _} ->
-            maybe_log_failed_login_attempts("too many logging attempts for #{user.email}")
+          {:error, {:rate_limit, _}} ->
+            maybe_log_failed_login_attempts("too many login attempts for #{user.email}")
 
             conn
             |> TwoFactor.Session.clear_2fa_user()
@@ -530,155 +426,10 @@ defmodule PlausibleWeb.AuthController do
     end
   end
 
-  def save_settings(conn, %{"user" => user_params}) do
-    user = conn.assigns.current_user
-    changes = Auth.User.settings_changeset(user, user_params)
-
-    case Repo.update(changes) do
-      {:ok, _user} ->
-        conn
-        |> put_flash(:success, "Account settings saved successfully")
-        |> redirect(to: Routes.auth_path(conn, :user_settings))
-
-      {:error, changeset} ->
-        email_changeset = Auth.User.settings_changeset(user)
-
-        render_settings(conn,
-          settings_changeset: changeset,
-          email_changeset: email_changeset
-        )
-    end
-  end
-
-  def update_email(conn, %{"user" => user_params}) do
-    user = conn.assigns.current_user
-
-    case RateLimit.check_rate(
-           "email-change:user:#{user.id}",
-           @email_change_interval,
-           @email_change_limit
-         ) do
-      {:allow, _} ->
-        changes = Auth.User.email_changeset(user, user_params)
-
-        case Repo.update(changes) do
-          {:ok, user} ->
-            if user.email_verified do
-              handle_email_updated(conn)
-            else
-              Auth.EmailVerification.issue_code(user)
-              redirect(conn, to: Routes.auth_path(conn, :activate_form))
-            end
-
-          {:error, changeset} ->
-            settings_changeset = Auth.User.settings_changeset(user)
-
-            render_settings(conn,
-              settings_changeset: settings_changeset,
-              email_changeset: changeset
-            )
-        end
-
-      {:deny, _} ->
-        settings_changeset = Auth.User.settings_changeset(user)
-
-        {:error, changeset} =
-          user
-          |> Auth.User.email_changeset(user_params)
-          |> Ecto.Changeset.add_error(:email, "too many requests, try again in an hour")
-          |> Ecto.Changeset.apply_action(:validate)
-
-        render_settings(conn,
-          settings_changeset: settings_changeset,
-          email_changeset: changeset
-        )
-    end
-  end
-
-  def cancel_update_email(conn, _params) do
-    changeset = Auth.User.cancel_email_changeset(conn.assigns.current_user)
-
-    case Repo.update(changeset) do
-      {:ok, user} ->
-        conn
-        |> put_flash(:success, "Email changed back to #{user.email}")
-        |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#change-email-address")
-
-      {:error, _} ->
-        conn
-        |> put_flash(
-          :error,
-          "Could not cancel email update because previous email has already been taken"
-        )
-        |> redirect(to: Routes.auth_path(conn, :activate_form))
-    end
-  end
-
   defp handle_email_updated(conn) do
     conn
     |> put_flash(:success, "Email updated successfully")
-    |> redirect(to: Routes.auth_path(conn, :user_settings) <> "#change-email-address")
-  end
-
-  defp render_settings(conn, opts) do
-    settings_changeset = Keyword.fetch!(opts, :settings_changeset)
-    email_changeset = Keyword.fetch!(opts, :email_changeset)
-
-    user = Plausible.Users.with_subscription(conn.assigns[:current_user])
-
-    render(conn, "user_settings.html",
-      user: user |> Repo.preload(:api_keys),
-      settings_changeset: settings_changeset,
-      email_changeset: email_changeset,
-      subscription: user.subscription,
-      invoices: Plausible.Billing.paddle_api().get_invoices(user.subscription),
-      theme: user.theme || "system",
-      team_member_limit: Quota.team_member_limit(user),
-      team_member_usage: Quota.team_member_usage(user),
-      site_limit: Quota.site_limit(user),
-      site_usage: Quota.site_usage(user),
-      pageview_limit: Quota.monthly_pageview_limit(user),
-      pageview_usage: Quota.monthly_pageview_usage(user),
-      totp_enabled?: Auth.TOTP.enabled?(user)
-    )
-  end
-
-  def new_api_key(conn, _params) do
-    changeset = Auth.ApiKey.changeset(%Auth.ApiKey{})
-
-    render(conn, "new_api_key.html",
-      changeset: changeset,
-      layout: {PlausibleWeb.LayoutView, "focus.html"}
-    )
-  end
-
-  def create_api_key(conn, %{"api_key" => %{"name" => name, "key" => key}}) do
-    case Auth.create_api_key(conn.assigns.current_user, name, key) do
-      {:ok, _api_key} ->
-        conn
-        |> put_flash(:success, "API key created successfully")
-        |> redirect(to: "/settings#api-keys")
-
-      {:error, changeset} ->
-        render(conn, "new_api_key.html",
-          changeset: changeset,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
-    end
-  end
-
-  def delete_api_key(conn, %{"id" => id}) do
-    case Auth.delete_api_key(conn.assigns.current_user, id) do
-      :ok ->
-        conn
-        |> put_flash(:success, "API key revoked successfully")
-        |> redirect(to: "/settings#api-keys")
-
-      {:error, :not_found} ->
-        conn
-        |> put_flash(:error, "Could not find API Key to delete")
-        |> redirect(to: "/settings#api-keys")
-    end
+    |> redirect(to: Routes.settings_path(conn, :security) <> "#update-email")
   end
 
   def delete_me(conn, params) do
@@ -691,14 +442,21 @@ defmodule PlausibleWeb.AuthController do
     redirect_to = Map.get(params, "redirect", "/")
 
     conn
-    |> configure_session(drop: true)
-    |> delete_resp_cookie("logged_in")
+    |> UserAuth.log_out_user()
     |> redirect(to: redirect_to)
   end
 
   def google_auth_callback(conn, %{"error" => error, "state" => state} = params) do
-    [site_id, _redirect_to] = Jason.decode!(state)
+    [site_id, redirected_to | _] = Jason.decode!(state)
+
     site = Repo.get(Plausible.Site, site_id)
+
+    redirect_route =
+      if redirected_to == "import" do
+        Routes.site_path(conn, :settings_imports_exports, site.domain)
+      else
+        Routes.site_path(conn, :settings_integrations, site.domain)
+      end
 
     case error do
       "access_denied" ->
@@ -707,7 +465,7 @@ defmodule PlausibleWeb.AuthController do
           :error,
           "We were unable to authenticate your Google Analytics account. Please check that you have granted us permission to 'See and download your Google Analytics data' and try again."
         )
-        |> redirect(external: Routes.site_path(conn, :settings_general, site.domain))
+        |> redirect(external: redirect_route)
 
       message when message in ["server_error", "temporarily_unavailable"] ->
         conn
@@ -715,7 +473,7 @@ defmodule PlausibleWeb.AuthController do
           :error,
           "We are unable to authenticate your Google Analytics account because Google's authentication service is temporarily unavailable. Please try again in a few moments."
         )
-        |> redirect(external: Routes.site_path(conn, :settings_general, site.domain))
+        |> redirect(external: redirect_route)
 
       _any ->
         Sentry.capture_message("Google OAuth callback failed. Reason: #{inspect(params)}")
@@ -725,13 +483,15 @@ defmodule PlausibleWeb.AuthController do
           :error,
           "We were unable to authenticate your Google Analytics account. If the problem persists, please contact support for assistance."
         )
-        |> redirect(external: Routes.site_path(conn, :settings_general, site.domain))
+        |> redirect(external: redirect_route)
     end
   end
 
   def google_auth_callback(conn, %{"code" => code, "state" => state}) do
-    res = Plausible.Google.HTTP.fetch_access_token(code)
-    [site_id, redirect_to] = Jason.decode!(state)
+    res = Plausible.Google.API.fetch_access_token!(code)
+
+    [site_id, redirect_to | _] = Jason.decode!(state)
+
     site = Repo.get(Plausible.Site, site_id)
     expires_at = NaiveDateTime.add(NaiveDateTime.utc_now(), res["expires_in"])
 
@@ -739,7 +499,7 @@ defmodule PlausibleWeb.AuthController do
       "import" ->
         redirect(conn,
           external:
-            Routes.site_path(conn, :import_from_google_view_id_form, site.domain,
+            Routes.google_analytics_path(conn, :property_form, site.domain,
               access_token: res["access_token"],
               refresh_token: res["refresh_token"],
               expires_at: NaiveDateTime.to_iso8601(expires_at)
@@ -764,6 +524,16 @@ defmodule PlausibleWeb.AuthController do
         site = Repo.get(Plausible.Site, site_id)
 
         redirect(conn, external: "/#{URI.encode_www_form(site.domain)}/settings/integrations")
+    end
+  end
+
+  defp redirect_to_login(conn) do
+    redirect(conn, to: Routes.auth_path(conn, :login_form))
+  end
+
+  defp maybe_log_failed_login_attempts(message) do
+    if Application.get_env(:plausible, :log_failed_login_attempts) do
+      Logger.warning("[login] #{message}")
     end
   end
 end

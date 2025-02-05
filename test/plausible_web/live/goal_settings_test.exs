@@ -1,12 +1,13 @@
 defmodule PlausibleWeb.Live.GoalSettingsTest do
   use PlausibleWeb.ConnCase, async: true
+  use Plausible.Teams.Test
   import Phoenix.LiveViewTest
   import Plausible.Test.Support.HTML
 
-  describe "GET /:website/settings/goals" do
+  describe "GET /:domain/settings/goals" do
     setup [:create_user, :log_in, :create_site]
 
-    @tag :full_build_only
+    @tag :ee_only
     test "lists goals for the site and renders links", %{conn: conn, site: site} do
       {:ok, [g1, g2, g3]} = setup_goals(site)
       conn = get(conn, "/#{site.domain}/settings/goals")
@@ -22,16 +23,17 @@ defmodule PlausibleWeb.Live.GoalSettingsTest do
       assert resp =~ to_string(g2)
       assert resp =~ "Custom Event"
       assert resp =~ to_string(g3)
-      assert resp =~ "Revenue Goal"
+      assert resp =~ "Revenue Goal (EUR)"
     end
 
-    @tag :full_build_only
+    @tag :ee_only
     test "lists Revenue Goals with feature availability annotation if the plan does not cover them",
          %{conn: conn, user: user, site: site} do
       {:ok, [_, _, g3]} = setup_goals(site)
 
       user
-      |> Plausible.Auth.User.end_trial()
+      |> team_of()
+      |> Plausible.Teams.Team.end_trial()
       |> Plausible.Repo.update!()
 
       conn = get(conn, "/#{site.domain}/settings/goals")
@@ -41,9 +43,14 @@ defmodule PlausibleWeb.Live.GoalSettingsTest do
       assert g3.currency
       assert resp =~ to_string(g3)
       assert resp =~ "Unlock Revenue Goals by upgrading to a business plan"
+
+      refute element_exists?(
+               resp,
+               ~s/button[phx-click="edit-goal"][phx-value-goal-id=#{g3.id}][disabled]#edit-goal-#{g3.id}/
+             )
     end
 
-    test "lists goals with delete actions", %{conn: conn, site: site} do
+    test "lists goals with actions", %{conn: conn, site: site} do
       {:ok, goals} = setup_goals(site)
       conn = get(conn, "/#{site.domain}/settings/goals")
       resp = html_response(conn, 200)
@@ -52,6 +59,11 @@ defmodule PlausibleWeb.Live.GoalSettingsTest do
         assert element_exists?(
                  resp,
                  ~s/button[phx-click="delete-goal"][phx-value-goal-id=#{g.id}]#delete-goal-#{g.id}/
+               )
+
+        assert element_exists?(
+                 resp,
+                 ~s/button[phx-click="edit-goal"][phx-value-goal-id=#{g.id}]#edit-goal-#{g.id}/
                )
       end
     end
@@ -75,10 +87,7 @@ defmodule PlausibleWeb.Live.GoalSettingsTest do
     test "add goal button is rendered", %{conn: conn, site: site} do
       conn = get(conn, "/#{site.domain}/settings/goals")
       resp = html_response(conn, 200)
-      assert element_exists?(resp, ~s/button#add-goal-button[x-data]/)
-      attr = text_of_attr(resp, ~s/button#add-goal-button/, "x-on:click")
-      assert attr =~ "open-modal"
-      assert attr =~ "goals-form-modal"
+      assert element_exists?(resp, ~s/button#add-goal-button[phx-click="add-goal"]/)
     end
 
     test "search goals input is rendered", %{conn: conn, site: site} do
@@ -156,16 +165,51 @@ defmodule PlausibleWeb.Live.GoalSettingsTest do
       refute html =~ "No goals found for this site. Please refine or"
     end
 
-    test "Add Goal form view is rendered immediately, though hidden", %{conn: conn, site: site} do
-      {:ok, _goals} = setup_goals(site)
-      {_, html} = get_liveview(conn, site, with_html?: true)
+    test "auto-configuring custom event goals", %{conn: conn, site: site} do
+      populate_stats(site, [
+        build(:event, name: "Signup"),
+        build(:event, name: "Newsletter Signup"),
+        build(:event, name: "Purchase")
+      ])
 
-      assert html =~ "Add Goal for #{site.domain}"
+      autoconfigure_button_selector = ~s/button[phx-click="autoconfigure"]/
 
-      assert element_exists?(
-               html,
-               ~s/div#goals-form form[phx-submit="save-goal"]/
-             )
+      assert_suggested_event_name_count = fn html, number ->
+        assert text_of_element(html, autoconfigure_button_selector) =~
+                 "found #{number} custom events from the last 6 months that are not yet configured as goals"
+      end
+
+      {lv, html} = get_liveview(conn, site, with_html?: true)
+
+      # At first, 3 event names are suggested
+      assert_suggested_event_name_count.(html, 3)
+
+      # Add one goal
+      lv
+      |> element("#goals-form-modal form")
+      |> render_submit(%{goal: %{event_name: "Signup"}})
+
+      html = render(lv)
+
+      # Now two goals are suggested because one is already added
+      assert_suggested_event_name_count.(html, 2)
+
+      # Delete the goal
+      goal = Plausible.Repo.get_by(Plausible.Goal, site_id: site.id, event_name: "Signup")
+      html = lv |> element(~s/button#delete-goal-#{goal.id}/) |> render_click()
+
+      # Suggested event name count should be 3 again
+      assert_suggested_event_name_count.(html, 3)
+
+      # Autoconfigure all custom event goals
+      lv
+      |> element(autoconfigure_button_selector)
+      |> render_click()
+
+      html = render(lv)
+
+      # All possible goals exist - no suggestions anymore
+      refute html =~ "from the last 6 months"
     end
   end
 

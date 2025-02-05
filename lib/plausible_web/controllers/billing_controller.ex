@@ -4,82 +4,83 @@ defmodule PlausibleWeb.BillingController do
   require Logger
   require Plausible.Billing.Subscription.Status
   alias Plausible.Billing
-  alias Plausible.Billing.{Plans, Subscription}
+  alias Plausible.Billing.Subscription
 
   plug PlausibleWeb.RequireAccountPlug
 
   def ping_subscription(%Plug.Conn{} = conn, _params) do
-    subscribed? = Billing.has_active_subscription?(conn.assigns.current_user.id)
+    subscribed? = Plausible.Teams.Billing.has_active_subscription?(conn.assigns.my_team)
+
     json(conn, %{is_subscribed: subscribed?})
   end
 
   def choose_plan(conn, _params) do
-    user = conn.assigns.current_user
+    my_team = conn.assigns.my_team
 
-    if Plausible.Auth.enterprise_configured?(user) do
+    if Plausible.Teams.Billing.enterprise_configured?(my_team) do
       redirect(conn, to: Routes.billing_path(conn, :upgrade_to_enterprise_plan))
     else
       render(conn, "choose_plan.html",
         skip_plausible_tracking: true,
-        user: user,
-        layout: {PlausibleWeb.LayoutView, "focus.html"},
         connect_live_socket: true
       )
     end
   end
 
   def upgrade_to_enterprise_plan(conn, _params) do
-    user = Plausible.Users.with_subscription(conn.assigns.current_user)
+    my_team = conn.assigns.my_team
+    subscription = Plausible.Teams.Billing.get_subscription(my_team)
 
-    {latest_enterprise_plan, price} = Plans.latest_enterprise_plan_with_price(user)
+    {latest_enterprise_plan, price} =
+      Plausible.Teams.Billing.latest_enterprise_plan_with_price(
+        my_team,
+        PlausibleWeb.RemoteIP.get(conn)
+      )
 
-    subscription_resumable? = Plausible.Billing.Subscriptions.resumable?(user.subscription)
+    subscription_resumable? =
+      Plausible.Billing.Subscriptions.resumable?(subscription)
 
     subscribed_to_latest? =
       subscription_resumable? &&
-        user.subscription.paddle_plan_id == latest_enterprise_plan.paddle_plan_id
+        subscription.paddle_plan_id == latest_enterprise_plan.paddle_plan_id
 
     cond do
-      Subscription.Status.in?(user.subscription, [
+      Subscription.Status.in?(subscription, [
         Subscription.Status.past_due(),
         Subscription.Status.paused()
       ]) ->
-        redirect(conn, to: Routes.auth_path(conn, :user_settings))
+        redirect(conn, to: Routes.settings_path(conn, :subscription))
 
       subscribed_to_latest? ->
-        render(conn, "change_enterprise_plan_contact_us.html",
-          skip_plausible_tracking: true,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
-        )
+        render(conn, "change_enterprise_plan_contact_us.html", skip_plausible_tracking: true)
 
       true ->
         render(conn, "upgrade_to_enterprise_plan.html",
-          user: user,
           latest_enterprise_plan: latest_enterprise_plan,
           price: price,
           subscription_resumable: subscription_resumable?,
           contact_link: "https://plausible.io/contact",
-          skip_plausible_tracking: true,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
+          skip_plausible_tracking: true
         )
     end
   end
 
   def upgrade_success(conn, _params) do
-    render(conn, "upgrade_success.html", layout: {PlausibleWeb.LayoutView, "focus.html"})
+    render(conn, "upgrade_success.html")
   end
 
   def change_plan_preview(conn, %{"plan_id" => new_plan_id}) do
-    user = conn.assigns.current_user
+    my_team = conn.assigns.my_team
+    current_user = conn.assigns.current_user
+    subscription = Plausible.Teams.Billing.active_subscription_for(my_team)
 
-    case preview_subscription(user, new_plan_id) do
+    case preview_subscription(subscription, new_plan_id) do
       {:ok, {subscription, preview_info}} ->
         render(conn, "change_plan_preview.html",
           back_link: Routes.billing_path(conn, :choose_plan),
           skip_plausible_tracking: true,
           subscription: subscription,
-          preview_info: preview_info,
-          layout: {PlausibleWeb.LayoutView, "focus.html"}
+          preview_info: preview_info
         )
 
       _ ->
@@ -90,7 +91,8 @@ defmodule PlausibleWeb.BillingController do
           extra: %{
             message: msg,
             new_plan_id: new_plan_id,
-            user_id: user.id
+            team_id: my_team.id,
+            user_id: current_user.id
           }
         )
 
@@ -101,11 +103,13 @@ defmodule PlausibleWeb.BillingController do
   end
 
   def change_plan(conn, %{"new_plan_id" => new_plan_id}) do
-    case Billing.change_plan(conn.assigns.current_user, new_plan_id) do
+    my_team = conn.assigns.my_team
+
+    case Plausible.Teams.Billing.change_plan(my_team, new_plan_id) do
       {:ok, _subscription} ->
         conn
         |> put_flash(:success, "Plan changed successfully")
-        |> redirect(to: "/settings")
+        |> redirect(to: Routes.settings_path(conn, :subscription))
 
       {:error, e} ->
         msg =
@@ -129,25 +133,22 @@ defmodule PlausibleWeb.BillingController do
             errors: inspect(e),
             message: msg,
             new_plan_id: new_plan_id,
-            user_id: conn.assigns[:current_user].id
+            team_id: my_team.id,
+            user_id: conn.assigns.current_user.id
           }
         )
 
         conn
         |> put_flash(:error, msg)
-        |> redirect(to: "/settings")
+        |> redirect(to: Routes.settings_path(conn, :subscription))
     end
   end
 
-  defp preview_subscription(%{id: user_id}, new_plan_id) do
-    subscription = Billing.active_subscription_for(user_id)
+  defp preview_subscription(nil, _new_plan_id), do: {:error, :no_subscription}
 
-    if subscription do
-      with {:ok, preview_info} <- Billing.change_plan_preview(subscription, new_plan_id) do
-        {:ok, {subscription, preview_info}}
-      end
-    else
-      {:error, :no_subscription}
+  defp preview_subscription(subscription, new_plan_id) do
+    with {:ok, preview_info} <- Billing.change_plan_preview(subscription, new_plan_id) do
+      {:ok, {subscription, preview_info}}
     end
   end
 end

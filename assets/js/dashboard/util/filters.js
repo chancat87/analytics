@@ -1,108 +1,123 @@
-export const FILTER_GROUPS = {
-  'page': ['page', 'entry_page', 'exit_page'],
-  'source': ['source', 'referrer'],
-  'location': ['country', 'region', 'city'],
-  'screen': ['screen'],
-  'browser': ['browser', 'browser_version'],
-  'os': ['os', 'os_version'],
-  'utm': ['utm_medium', 'utm_source', 'utm_campaign', 'utm_term', 'utm_content'],
-  'goal': ['goal'],
-  'props': ['prop_key', 'prop_value']
+/** @format */
+
+import * as api from '../api'
+
+export const FILTER_MODAL_TO_FILTER_GROUP = {
+  page: ['page', 'entry_page', 'exit_page'],
+  source: ['source', 'channel', 'referrer'],
+  location: ['country', 'region', 'city'],
+  screen: ['screen'],
+  browser: ['browser', 'browser_version'],
+  os: ['os', 'os_version'],
+  utm: ['utm_medium', 'utm_source', 'utm_campaign', 'utm_term', 'utm_content'],
+  goal: ['goal'],
+  props: ['props'],
+  hostname: ['hostname']
 }
 
-export const NO_CONTAINS_OPERATOR = new Set(['goal', 'screen'].concat(FILTER_GROUPS['location']))
+export const FILTER_GROUP_TO_MODAL_TYPE = Object.fromEntries(
+  Object.entries(FILTER_MODAL_TO_FILTER_GROUP).flatMap(
+    ([modalName, filterGroups]) =>
+      filterGroups.map((filterGroup) => [filterGroup, modalName])
+  )
+)
+
+export const EVENT_PROPS_PREFIX = 'props:'
 
 export const FILTER_OPERATIONS = {
-  isNot: 'is not',
+  is: 'is',
+  isNot: 'is_not',
   contains: 'contains',
-  is: 'is'
-};
+  contains_not: 'contains_not',
+  has_not_done: 'has_not_done'
+}
 
-export const OPERATION_PREFIX = {
-  [FILTER_OPERATIONS.isNot]: '!',
-  [FILTER_OPERATIONS.contains]: '~',
-  [FILTER_OPERATIONS.is]: ''
-};
+export const FILTER_OPERATIONS_DISPLAY_NAMES = {
+  [FILTER_OPERATIONS.is]: 'is',
+  [FILTER_OPERATIONS.isNot]: 'is not',
+  [FILTER_OPERATIONS.contains]: 'contains',
+  [FILTER_OPERATIONS.contains_not]: 'does not contain',
+  // :NOTE: Goal filters are displayed as "is not" in the UI, but in the backend they are wrapped with has_not_done.
+  // It is currently unclear if we'll do the same for other event filters in the future.
+  [FILTER_OPERATIONS.has_not_done]: 'is not'
+}
 
 export function supportsIsNot(filterName) {
   return !['goal', 'prop_key'].includes(filterName)
 }
 
-export function isFreeChoiceFilter(filterName) {
-  return !NO_CONTAINS_OPERATOR.has(filterName)
+export function supportsContains(filterName) {
+  return !['screen']
+    .concat(FILTER_MODAL_TO_FILTER_GROUP['location'])
+    .includes(filterName)
 }
 
-// As of March 2023, Safari does not support negative lookbehind regexes. In case it throws an error, falls back to plain | matching. This means
-// escaping pipe characters in filters does not currently work in Safari
-let NON_ESCAPED_PIPE_REGEX;
-try {
-  NON_ESCAPED_PIPE_REGEX = new RegExp("(?<!\\\\)\\|", "g")
-} catch(_e) {
-  NON_ESCAPED_PIPE_REGEX = '|'
+export function supportsHasDoneNot(filterName) {
+  return filterName === 'goal'
 }
 
-const ESCAPED_PIPE = '\\|'
-
-export function escapeFilterValue(value) {
-  return value.replaceAll(NON_ESCAPED_PIPE_REGEX, ESCAPED_PIPE)
+export function isFreeChoiceFilterOperation(operation) {
+  return [FILTER_OPERATIONS.contains, FILTER_OPERATIONS.contains_not].includes(
+    operation
+  )
 }
 
-export function toFilterQuery(type, clauses) {
-  const prefix = OPERATION_PREFIX[type];
-  const result = clauses.map(clause => escapeFilterValue(clause.value.trim())).join('|')
-  return prefix + result;
+export function getLabel(labels, filterKey, value) {
+  if (['country', 'region', 'city'].includes(filterKey)) {
+    return labels[value]
+  } else {
+    return value
+  }
 }
 
-export function parsePrefix(rawValue) {
-  const type = Object.keys(OPERATION_PREFIX)
-    .find(type => OPERATION_PREFIX[type] === rawValue[0]) || FILTER_OPERATIONS.is;
-
-  const value = type === FILTER_OPERATIONS.is ? rawValue : rawValue.substring(1)
-
-  const values = value
-    .split(NON_ESCAPED_PIPE_REGEX)
-    .filter((clause) => !!clause)
-    .map((val) => val.replaceAll(ESCAPED_PIPE, '|'))
-
-  return {type, values}
+export function getPropertyKeyFromFilterKey(filterKey) {
+  return filterKey.slice(EVENT_PROPS_PREFIX.length)
 }
 
-export function parseQueryPropsFilter(query) {
-  return Object.entries(query.filters['props']).map(([key, propVal]) => {
-    const {type, values} = parsePrefix(propVal)
-    const clauses = values.map(val => { return {value: val, label: val}})
-    return { propKey: { label: key, value: key }, type, clauses }
+export function getFiltersByKeyPrefix(query, prefix) {
+  return query.filters.filter(([_operation, filterKey, _clauses]) =>
+    filterKey.startsWith(prefix)
+  )
+}
+
+function omitFiltersByKeyPrefix(query, prefix) {
+  return query.filters.filter(
+    ([_operation, filterKey, _clauses]) => !filterKey.startsWith(prefix)
+  )
+}
+
+export function replaceFilterByPrefix(query, prefix, filter) {
+  return omitFiltersByKeyPrefix(query, prefix).concat([filter])
+}
+
+export function isFilteringOnFixedValue(query, filterKey, expectedValue) {
+  const filters = query.filters.filter(([_operation, key]) => filterKey == key)
+  if (filters.length == 1) {
+    const [operation, _filterKey, clauses] = filters[0]
+    return (
+      operation === FILTER_OPERATIONS.is &&
+      clauses.length === 1 &&
+      (!expectedValue || clauses[0] == expectedValue)
+    )
+  }
+  return false
+}
+
+export function hasConversionGoalFilter(query) {
+  const goalFilters = getFiltersByKeyPrefix(query, 'goal')
+
+  return goalFilters.some(([operation, _filterKey, _clauses]) => {
+    return operation !== FILTER_OPERATIONS.has_not_done
   })
 }
 
-export function parseQueryFilter(query, filter) {
-  const {type, values} = parsePrefix(query.filters[filter] || '')
-
-  let labels = values
-
-  if (filter === 'country' && values.length > 0) {
-    const rawLabel = (new URLSearchParams(window.location.search)).get('country_labels') || ''
-    labels = rawLabel.split('|').filter(label => !!label)
-  }
-
-  if (filter === 'region' && values.length > 0) {
-    const rawLabel = (new URLSearchParams(window.location.search)).get('region_labels') || ''
-    labels = rawLabel.split('|').filter(label => !!label)
-  }
-
-  if (filter === 'city' && values.length > 0) {
-    const rawLabel = (new URLSearchParams(window.location.search)).get('city_labels') || ''
-    labels = rawLabel.split('|').filter(label => !!label)
-  }
-
-  const clauses = values.map((value, index) => { return {value, label: labels[index]}})
-
-  return {type, clauses}
+export function isRealTimeDashboard(query) {
+  return query?.period === 'realtime'
 }
 
-export function isFilteringOnFixedValue(query, filter) {
-  const { type, clauses } = parseQueryFilter(query, filter)
-  return type == FILTER_OPERATIONS.is && clauses.length == 1
+// Note: Currently only a single goal filter can be applied at a time.
+export function getGoalFilter(query) {
+  return getFiltersByKeyPrefix(query, 'goal')[0] || null
 }
 
 export function formatFilterGroup(filterGroup) {
@@ -117,41 +132,105 @@ export function formatFilterGroup(filterGroup) {
   }
 }
 
-export function filterGroupForFilter(filter) {
-  const map = Object.entries(FILTER_GROUPS).reduce((filterToGroupMap, [group, filtersInGroup]) => {
-    const filtersToAdd = {}
-    filtersInGroup.forEach((filterInGroup) => {
-      filtersToAdd[filterInGroup] = group
-    })
+export function cleanLabels(filters, labels, mergedFilterKey, mergedLabels) {
+  const filteredBy = Object.fromEntries(
+    filters
+      .flatMap(([_operation, filterKey, clauses]) =>
+        ['country', 'region', 'city'].includes(filterKey) ? clauses : []
+      )
+      .map((value) => [value, true])
+  )
+  let result = { ...labels }
+  for (const value in labels) {
+    if (!filteredBy[value]) {
+      delete result[value]
+    }
+  }
 
-    return { ...filterToGroupMap, ...filtersToAdd }
-  }, {})
+  if (
+    mergedFilterKey &&
+    ['country', 'region', 'city'].includes(mergedFilterKey)
+  ) {
+    result = {
+      ...result,
+      ...mergedLabels
+    }
+  }
 
+  return result
+}
 
-  return map[filter] || filter
+const EVENT_FILTER_KEYS = new Set(['name', 'page', 'goal', 'hostname'])
+
+export function serializeApiFilters(filters) {
+  const apiFilters = filters.map(serializeFilter)
+  return JSON.stringify(apiFilters)
+}
+
+function serializeFilter([operation, filterKey, clauses, ...modifiers]) {
+  let apiFilterKey = `visit:${filterKey}`
+  if (
+    filterKey.startsWith(EVENT_PROPS_PREFIX) ||
+    EVENT_FILTER_KEYS.has(filterKey)
+  ) {
+    apiFilterKey = `event:${filterKey}`
+  }
+  if (operation === FILTER_OPERATIONS.has_not_done) {
+    // :NOTE: Frontend does not support advanced query building that's used in the backend.
+    // As such we emulate the backend behavior for has_not_done goal filters
+    return ['has_not_done', ['is', apiFilterKey, clauses, ...modifiers]]
+  } else {
+    return [operation, apiFilterKey, clauses, ...modifiers]
+  }
+}
+
+export function fetchSuggestions(apiPath, query, input, additionalFilter) {
+  const updatedQuery = queryForSuggestions(query, additionalFilter)
+  return api.get(apiPath, updatedQuery, { q: input.trim() })
+}
+
+function queryForSuggestions(query, additionalFilter) {
+  let filters = query.filters
+  if (additionalFilter) {
+    const [_operation, filterKey, clauses] = additionalFilter
+
+    // For suggestions, we remove already-applied filter with same key from query and add new filter (if feasible)
+    if (clauses.length > 0) {
+      filters = replaceFilterByPrefix(query, filterKey, additionalFilter)
+    } else {
+      filters = omitFiltersByKeyPrefix(query, filterKey)
+    }
+  }
+  return { ...query, filters }
+}
+
+export function getFilterGroup([_operation, filterKey, _clauses]) {
+  return filterKey.startsWith(EVENT_PROPS_PREFIX) ? 'props' : filterKey
 }
 
 export const formattedFilters = {
-  'goal': 'Goal',
-  'props': 'Property',
-  'prop_key': 'Property',
-  'prop_value': 'Value',
-  'source': 'Source',
-  'utm_medium': 'UTM Medium',
-  'utm_source': 'UTM Source',
-  'utm_campaign': 'UTM Campaign',
-  'utm_content': 'UTM Content',
-  'utm_term': 'UTM Term',
-  'referrer': 'Referrer URL',
-  'screen': 'Screen size',
-  'browser': 'Browser',
-  'browser_version': 'Browser Version',
-  'os': 'Operating System',
-  'os_version': 'Operating System Version',
-  'country': 'Country',
-  'region': 'Region',
-  'city': 'City',
-  'page': 'Page',
-  'entry_page': 'Entry Page',
-  'exit_page': 'Exit Page'
+  goal: 'Goal',
+  props: 'Property',
+  prop_key: 'Property',
+  prop_value: 'Value',
+  source: 'Source',
+  channel: 'Channel',
+  utm_medium: 'UTM Medium',
+  utm_source: 'UTM Source',
+  utm_campaign: 'UTM Campaign',
+  utm_content: 'UTM Content',
+  utm_term: 'UTM Term',
+  referrer: 'Referrer URL',
+  screen: 'Screen size',
+  browser: 'Browser',
+  browser_version: 'Browser Version',
+  os: 'Operating System',
+  os_version: 'Operating System Version',
+  country: 'Country',
+  region: 'Region',
+  city: 'City',
+  page: 'Page',
+  hostname: 'Hostname',
+  entry_page: 'Entry Page',
+  exit_page: 'Exit Page'
 }

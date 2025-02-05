@@ -1,8 +1,9 @@
 defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
   use PlausibleWeb.ConnCase
+  use Plausible.Teams.Test
 
   describe "GET /api/stats/:domain/custom-prop-values/:prop_key" do
-    setup [:create_user, :log_in, :create_new_site, :add_imported_data]
+    setup [:create_user, :log_in, :create_site, :create_legacy_site_import]
 
     test "returns breakdown by a custom property", %{conn: conn, site: site} do
       prop_key = "parim_s6ber"
@@ -21,7 +22,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "K2sna Kalle",
@@ -57,7 +58,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&with_imported=true"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "K2sna Kalle",
@@ -65,6 +66,8 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
                  "percentage" => 100.0
                }
              ]
+
+      refute json_response(conn, 200)["warning"]
     end
 
     test "returns (none) values in the breakdown", %{conn: conn, site: site} do
@@ -82,7 +85,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "K2sna Kalle",
@@ -98,38 +101,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
              ]
     end
 
-    test "(none) value is added as +1 to pagination limit", %{conn: conn, site: site} do
-      prop_key = "parim_s6ber"
-
-      populate_stats(site, [
-        build(:pageview, "meta.key": [prop_key], "meta.value": ["K2sna Kalle"]),
-        build(:pageview, "meta.key": [prop_key], "meta.value": ["K2sna Kalle"]),
-        build(:pageview)
-      ])
-
-      conn =
-        get(
-          conn,
-          "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&limit=1"
-        )
-
-      assert json_response(conn, 200) == [
-               %{
-                 "visitors" => 2,
-                 "name" => "K2sna Kalle",
-                 "events" => 2,
-                 "percentage" => 66.7
-               },
-               %{
-                 "visitors" => 1,
-                 "name" => "(none)",
-                 "events" => 1,
-                 "percentage" => 33.3
-               }
-             ]
-    end
-
-    test "(none) value is only included on the first page of results", %{conn: conn, site: site} do
+    test "(none) value is included in pagination", %{conn: conn, site: site} do
       prop_key = "kaksik"
 
       populate_stats(site, [
@@ -144,16 +116,16 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       conn1 =
         get(
           conn,
-          "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&limit=1&page=1"
+          "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&limit=2&page=1"
         )
 
       conn2 =
         get(
           conn,
-          "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&limit=1&page=2"
+          "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&limit=2&page=2"
         )
 
-      assert json_response(conn1, 200) == [
+      assert json_response(conn1, 200)["results"] == [
                %{
                  "visitors" => 3,
                  "name" => "Tiit",
@@ -161,26 +133,26 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
                  "percentage" => 50.0
                },
                %{
-                 "visitors" => 1,
-                 "name" => "(none)",
-                 "events" => 1,
-                 "percentage" => 16.7
-               }
-             ]
-
-      assert json_response(conn2, 200) == [
-               %{
                  "visitors" => 2,
                  "name" => "Teet",
                  "events" => 2,
                  "percentage" => 33.3
                }
              ]
+
+      assert json_response(conn2, 200)["results"] == [
+               %{
+                 "visitors" => 1,
+                 "name" => "(none)",
+                 "events" => 1,
+                 "percentage" => 16.7
+               }
+             ]
     end
   end
 
   describe "GET /api/stats/:domain/custom-prop-values/:prop_key - with goal filter" do
-    setup [:create_user, :log_in, :create_new_site]
+    setup [:create_user, :log_in, :create_site]
 
     test "returns property breakdown for goal", %{conn: conn, site: site} do
       populate_stats(site, [
@@ -193,7 +165,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       ])
 
       insert(:goal, %{site: site, event_name: "Signup"})
-      filters = Jason.encode!(%{goal: "Signup"})
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
       prop_key = "variant"
 
       conn =
@@ -202,7 +174,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "B",
@@ -229,7 +201,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       ])
 
       insert(:goal, %{site: site, event_name: "Signup"})
-      filters = Jason.encode!(%{goal: "Signup"})
+      filters = Jason.encode!([[:is, "event:goal", ["Signup"]]])
       prop_key = "variant"
 
       conn =
@@ -238,7 +210,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "(none)",
@@ -270,10 +242,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "0"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is, "event:props:cost", ["0"]]
+        ])
 
       conn =
         get(
@@ -281,7 +253,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "0",
                  "visitors" => 1,
@@ -307,10 +279,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "(none)"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is, "event:props:cost", ["(none)"]]
+        ])
 
       conn =
         get(
@@ -318,7 +290,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "(none)",
                  "visitors" => 1,
@@ -354,10 +326,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "!0"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is_not, "event:props:cost", ["0"]]
+        ])
 
       conn =
         get(
@@ -365,7 +337,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "20",
                  "visitors" => 2,
@@ -397,10 +369,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "!(none)"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is_not, "event:props:cost", ["(none)"]]
+        ])
 
       conn =
         get(
@@ -408,7 +380,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "0",
                  "visitors" => 1,
@@ -444,10 +416,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "0|1"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is, "event:props:cost", ["0", "1"]]
+        ])
 
       conn =
         get(
@@ -455,7 +427,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "1",
                  "visitors" => 2,
@@ -495,10 +467,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "1|(none)"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is, "event:props:cost", ["1", "(none)"]]
+        ])
 
       conn =
         get(
@@ -506,7 +478,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "1",
                  "visitors" => 2,
@@ -553,10 +525,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "!0|0.01"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is_not, "event:props:cost", ["0", "0.01"]]
+        ])
 
       conn =
         get(
@@ -564,7 +536,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "20",
                  "visitors" => 2,
@@ -604,10 +576,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "Purchase"})
 
       filters =
-        Jason.encode!(%{
-          goal: "Purchase",
-          props: %{cost: "!0|(none)"}
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["Purchase"]],
+          [:is_not, "event:props:cost", ["0", "(none)"]]
+        ])
 
       conn =
         get(
@@ -615,7 +587,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/cost?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "20",
                  "visitors" => 2,
@@ -634,7 +606,11 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       ])
 
       insert(:goal, %{site: site, page_path: "/register"})
-      filters = Jason.encode!(%{goal: "Visit /register"})
+
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["Visit /register"]]
+        ])
 
       conn =
         get(
@@ -642,7 +618,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/variant?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "A",
@@ -667,7 +643,13 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       ])
 
       insert(:goal, %{site: site, event_name: "Signup"})
-      filters = Jason.encode!(%{goal: "Signup", props: %{"variant" => "B"}})
+
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["Signup"]],
+          [:is, "event:props:variant", ["B"]]
+        ])
+
       prop_key = "variant"
 
       conn =
@@ -676,7 +658,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "B",
@@ -707,11 +689,11 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "ButtonClick"})
 
       filters =
-        Jason.encode!(%{
-          goal: "ButtonClick",
-          props: %{variant: "A"},
-          utm_campaign: "campaignA"
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["ButtonClick"]],
+          [:is, "visit:utm_campaign", ["campaignA"]],
+          [:is, "event:props:variant", ["A"]]
+        ])
 
       prop_key = "variant"
 
@@ -721,7 +703,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "A",
                  "visitors" => 1,
@@ -753,10 +735,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
       insert(:goal, %{site: site, event_name: "ButtonClick"})
 
       filters =
-        Jason.encode!(%{
-          goal: "ButtonClick",
-          source: "Google"
-        })
+        Jason.encode!([
+          [:is, "event:goal", ["ButtonClick"]],
+          [:is, "visit:source", ["Google"]]
+        ])
 
       prop_key = "variant"
 
@@ -766,7 +748,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "name" => "A",
                  "visitors" => 1,
@@ -776,7 +758,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
              ]
     end
 
-    @tag :full_build_only
+    @tag :ee_only
     test "returns revenue metrics when filtering by a revenue goal", %{conn: conn, site: site} do
       prop_key = "logged_in"
 
@@ -804,9 +786,17 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         )
       ])
 
-      insert(:goal, %{site: site, event_name: "Payment", currency: :EUR})
+      insert(:goal, %{
+        site: site,
+        event_name: "Payment",
+        currency: :EUR,
+        display_name: "PaymentEUR"
+      })
 
-      filters = Jason.encode!(%{goal: "Payment"})
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["PaymentEUR"]]
+        ])
 
       conn =
         get(
@@ -814,27 +804,47 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "true",
                  "events" => 2,
                  "conversion_rate" => 66.7,
-                 "total_revenue" => %{"long" => "€112.00", "short" => "€112.0"},
-                 "average_revenue" => %{"long" => "€56.00", "short" => "€56.0"}
+                 "total_revenue" => %{
+                   "long" => "€112.00",
+                   "short" => "€112.0",
+                   "value" => 112.00,
+                   "currency" => "EUR"
+                 },
+                 "average_revenue" => %{
+                   "long" => "€56.00",
+                   "short" => "€56.0",
+                   "value" => 56.00,
+                   "currency" => "EUR"
+                 }
                },
                %{
                  "visitors" => 1,
                  "name" => "false",
                  "events" => 1,
                  "conversion_rate" => 33.3,
-                 "total_revenue" => %{"long" => "€8.00", "short" => "€8.0"},
-                 "average_revenue" => %{"long" => "€8.00", "short" => "€8.0"}
+                 "total_revenue" => %{
+                   "long" => "€8.00",
+                   "short" => "€8.0",
+                   "value" => 8.00,
+                   "currency" => "EUR"
+                 },
+                 "average_revenue" => %{
+                   "long" => "€8.00",
+                   "short" => "€8.0",
+                   "value" => 8.00,
+                   "currency" => "EUR"
+                 }
                }
              ]
     end
 
-    @tag :full_build_only
+    @tag :ee_only
     test "returns revenue metrics when filtering by many revenue goals with same currency", %{
       conn: conn,
       site: site
@@ -867,7 +877,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         )
       ])
 
-      filters = Jason.encode!(%{goal: "Payment|Payment2"})
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["Payment", "Payment2"]]
+        ])
 
       conn =
         get(
@@ -875,22 +888,42 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "true",
                  "events" => 2,
                  "conversion_rate" => 66.7,
-                 "total_revenue" => %{"long" => "€80.00", "short" => "€80.0"},
-                 "average_revenue" => %{"long" => "€40.00", "short" => "€40.0"}
+                 "total_revenue" => %{
+                   "long" => "€80.00",
+                   "short" => "€80.0",
+                   "value" => 80.0,
+                   "currency" => "EUR"
+                 },
+                 "average_revenue" => %{
+                   "long" => "€40.00",
+                   "short" => "€40.0",
+                   "value" => 40.0,
+                   "currency" => "EUR"
+                 }
                },
                %{
                  "visitors" => 1,
                  "name" => "false",
                  "events" => 1,
                  "conversion_rate" => 33.3,
-                 "total_revenue" => %{"long" => "€10.00", "short" => "€10.0"},
-                 "average_revenue" => %{"long" => "€10.00", "short" => "€10.0"}
+                 "total_revenue" => %{
+                   "long" => "€10.00",
+                   "short" => "€10.0",
+                   "value" => 10.0,
+                   "currency" => "EUR"
+                 },
+                 "average_revenue" => %{
+                   "long" => "€10.00",
+                   "short" => "€10.0",
+                   "value" => 10.0,
+                   "currency" => "EUR"
+                 }
                }
              ]
     end
@@ -910,7 +943,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         )
       ])
 
-      filters = Jason.encode!(%{goal: "Payment|AddToCart"})
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["Payment", "AddToCart"]]
+        ])
 
       conn =
         get(
@@ -920,6 +956,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
 
       returned_metrics =
         json_response(conn, 200)
+        |> Map.get("results")
         |> List.first()
         |> Map.keys()
 
@@ -929,7 +966,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
   end
 
   describe "GET /api/stats/:domain/custom-prop-values/:prop_key - other filters" do
-    setup [:create_user, :log_in, :create_new_site]
+    setup [:create_user, :log_in, :create_site]
 
     test "returns prop-breakdown with a page filter", %{conn: conn, site: site} do
       prop_key = "parim_s6ber"
@@ -939,7 +976,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         build(:pageview, pathname: "/sipsik", "meta.key": [prop_key], "meta.value": ["Sipsik"])
       ])
 
-      filters = Jason.encode!(%{page: "/sipsik"})
+      filters = Jason.encode!([[:is, "event:page", ["/sipsik"]]])
 
       conn =
         get(
@@ -947,7 +984,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "Sipsik",
@@ -962,10 +999,14 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
 
       populate_stats(site, [
         build(:pageview, "meta.key": [prop_key], "meta.value": ["K2sna Kalle"]),
-        build(:pageview, browser: "Chrome", "meta.key": [prop_key], "meta.value": ["Sipsik"])
+        build(:pageview,
+          browser: "Chrome",
+          "meta.key": [prop_key],
+          "meta.value": ["Sipsik"]
+        )
       ])
 
-      filters = Jason.encode!(%{browser: "Chrome"})
+      filters = Jason.encode!([[:is, "visit:browser", ["Chrome"]]])
 
       conn =
         get(
@@ -973,7 +1014,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "Sipsik",
@@ -992,7 +1033,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         build(:pageview, "meta.key": [prop_key], "meta.value": ["Sipsik"])
       ])
 
-      filters = Jason.encode!(%{props: %{parim_s6ber: "Sipsik"}})
+      filters =
+        Jason.encode!([
+          [:is, "event:props:parim_s6ber", ["Sipsik"]]
+        ])
 
       conn =
         get(
@@ -1000,7 +1044,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "Sipsik",
@@ -1023,7 +1067,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         build(:pageview)
       ])
 
-      filters = Jason.encode!(%{props: %{parim_s6ber: "!(none)"}})
+      filters =
+        Jason.encode!([
+          [:is_not, "event:props:parim_s6ber", ["(none)"]]
+        ])
 
       conn =
         get(
@@ -1031,7 +1078,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/#{prop_key}?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "K2sna Kalle",
@@ -1059,7 +1106,10 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         build(:pageview)
       ])
 
-      filters = Jason.encode!(%{props: %{key: "~bar"}})
+      filters =
+        Jason.encode!([
+          [:contains, "event:props:key", ["bar"]]
+        ])
 
       conn =
         get(
@@ -1067,7 +1117,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/key?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 2,
                  "name" => "bar",
@@ -1097,7 +1147,11 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
         build(:pageview)
       ])
 
-      filters = Jason.encode!(%{props: %{key: "~bar", other: "1"}})
+      filters =
+        Jason.encode!([
+          [:contains, "event:props:key", ["bar"]],
+          [:is, "event:props:other", ["1"]]
+        ])
 
       conn =
         get(
@@ -1105,7 +1159,7 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
           "/api/stats/#{site.domain}/custom-prop-values/key?period=day&filters=#{filters}"
         )
 
-      assert json_response(conn, 200) == [
+      assert json_response(conn, 200)["results"] == [
                %{
                  "visitors" => 1,
                  "name" => "bar",
@@ -1123,31 +1177,33 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
   end
 
   describe "GET /api/stats/:domain/custom-prop-values/:prop_key - for a Growth subscription" do
-    setup [:create_user, :log_in, :create_new_site]
+    setup [:create_user, :log_in, :create_site]
 
-    setup %{user: user, site: site} do
-      insert(:growth_subscription, user: user)
-
-      populate_stats(site, [
-        build(:pageview,
-          "meta.key": ["url", "path", "author"],
-          "meta.value": ["one", "two", "three"]
-        )
-      ])
-
+    setup %{user: user} do
+      subscribe_to_growth_plan(user)
       :ok
     end
 
-    test "returns breakdown for internally used prop keys", %{conn: conn, site: site} do
-      [%{"visitors" => 1, "name" => "one"}] =
-        conn
-        |> get("/api/stats/#{site.domain}/custom-prop-values/url?period=day")
-        |> json_response(200)
+    for special_prop <- Plausible.Props.internal_keys() do
+      test "returns breakdown for the internally used #{special_prop} prop key", %{
+        site: site,
+        conn: conn
+      } do
+        populate_stats(site, [
+          build(:pageview,
+            "meta.key": [unquote(special_prop)],
+            "meta.value": ["some_value"]
+          )
+        ])
 
-      [%{"visitors" => 1, "name" => "two"}] =
-        conn
-        |> get("/api/stats/#{site.domain}/custom-prop-values/path?period=day")
-        |> json_response(200)
+        assert [%{"visitors" => 1, "name" => "some_value"}] =
+                 conn
+                 |> get(
+                   "/api/stats/#{site.domain}/custom-prop-values/#{unquote(special_prop)}?period=day"
+                 )
+                 |> json_response(200)
+                 |> Map.get("results")
+      end
     end
 
     test "returns 402 'upgrade required' for any other prop key", %{conn: conn, site: site} do
@@ -1157,6 +1213,227 @@ defmodule PlausibleWeb.Api.StatsController.CustomPropBreakdownTest do
                "error" =>
                  "Custom Properties is part of the Plausible Business plan. To get access to this feature, please upgrade your account."
              }
+    end
+  end
+
+  describe "with imported data" do
+    setup [:create_user, :log_in, :create_site]
+
+    test "gracefully ignores unsupported WP Search Queries goal for imported data", %{
+      conn: conn,
+      site: site
+    } do
+      insert(:goal, event_name: "WP Search Queries", site: site)
+      site_import = insert(:site_import, site: site)
+
+      populate_stats(site, site_import.id, [
+        build(:event,
+          name: "WP Search Queries",
+          "meta.key": ["search_query", "result_count"],
+          "meta.value": ["some phrase", "12"]
+        ),
+        build(:imported_custom_events,
+          name: "view_search_results",
+          visitors: 100,
+          events: 200
+        ),
+        build(:imported_visitors, visitors: 9)
+      ])
+
+      filters =
+        Jason.encode!([
+          [:is, "event:goal", ["WP Search Queries"]]
+        ])
+
+      conn =
+        get(
+          conn,
+          "/api/stats/#{site.domain}/custom-prop-values/search_query?period=day&with_imported=true&filters=#{filters}"
+        )
+
+      assert json_response(conn, 200)["results"] == [
+               %{
+                 "visitors" => 1,
+                 "name" => "some phrase",
+                 "events" => 1,
+                 "conversion_rate" => 100.0
+               }
+             ]
+    end
+
+    for goal_name <- Plausible.Imported.goals_with_path() do
+      test "returns path breakdown for #{goal_name} goal", %{conn: conn, site: site} do
+        insert(:goal, event_name: unquote(goal_name), site: site)
+        site_import = insert(:site_import, site: site)
+
+        populate_stats(site, site_import.id, [
+          build(:event,
+            name: unquote(goal_name),
+            "meta.key": ["path"],
+            "meta.value": ["/some/path/first.bin"]
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 2,
+            events: 5,
+            path: "/some/path/first.bin"
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 5,
+            events: 10,
+            path: "/some/path/second.bin"
+          ),
+          build(:imported_custom_events,
+            name: "view_search_results",
+            visitors: 100,
+            events: 200
+          ),
+          build(:imported_visitors, visitors: 9)
+        ])
+
+        filters =
+          Jason.encode!([
+            [:is, "event:goal", [unquote(goal_name)]]
+          ])
+
+        conn =
+          get(
+            conn,
+            "/api/stats/#{site.domain}/custom-prop-values/path?period=day&with_imported=true&filters=#{filters}"
+          )
+
+        assert json_response(conn, 200)["results"] == [
+                 %{
+                   "visitors" => 5,
+                   "name" => "/some/path/second.bin",
+                   "events" => 10,
+                   "conversion_rate" => 50.0
+                 },
+                 %{
+                   "visitors" => 3,
+                   "name" => "/some/path/first.bin",
+                   "events" => 6,
+                   "conversion_rate" => 30.0
+                 }
+               ]
+      end
+    end
+
+    for goal_name <- Plausible.Imported.goals_with_url() do
+      test "returns url breakdown for #{goal_name} goal", %{conn: conn, site: site} do
+        insert(:goal, event_name: unquote(goal_name), site: site)
+        site_import = insert(:site_import, site: site)
+
+        populate_stats(site, site_import.id, [
+          build(:event,
+            name: unquote(goal_name),
+            "meta.key": ["url"],
+            "meta.value": ["https://one.com"]
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 2,
+            events: 5,
+            link_url: "https://one.com"
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 5,
+            events: 10,
+            link_url: "https://two.com"
+          ),
+          build(:imported_custom_events,
+            name: "view_search_results",
+            visitors: 100,
+            events: 200
+          ),
+          build(:imported_visitors, visitors: 9)
+        ])
+
+        filters =
+          Jason.encode!([
+            [:is, "event:goal", [unquote(goal_name)]]
+          ])
+
+        conn =
+          get(
+            conn,
+            "/api/stats/#{site.domain}/custom-prop-values/url?period=day&with_imported=true&filters=#{filters}"
+          )
+
+        assert json_response(conn, 200)["results"] == [
+                 %{
+                   "visitors" => 5,
+                   "name" => "https://two.com",
+                   "events" => 10,
+                   "conversion_rate" => 50.0
+                 },
+                 %{
+                   "visitors" => 3,
+                   "name" => "https://one.com",
+                   "events" => 6,
+                   "conversion_rate" => 30.0
+                 }
+               ]
+      end
+    end
+
+    for goal_name <- ["Outbound Link: Click", "File Download", "Cloaked Link: Click"] do
+      test "returns url breakdown for #{goal_name} goal with a url filter", %{
+        conn: conn,
+        site: site
+      } do
+        insert(:goal, event_name: unquote(goal_name), site: site)
+        site_import = insert(:site_import, site: site)
+
+        populate_stats(site, site_import.id, [
+          build(:event,
+            name: unquote(goal_name),
+            "meta.key": ["url"],
+            "meta.value": ["https://one.com"]
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 2,
+            events: 5,
+            link_url: "https://one.com"
+          ),
+          build(:imported_custom_events,
+            name: unquote(goal_name),
+            visitors: 5,
+            events: 10,
+            link_url: "https://two.com"
+          ),
+          build(:imported_custom_events,
+            name: "view_search_results",
+            visitors: 100,
+            events: 200
+          ),
+          build(:imported_visitors, visitors: 9)
+        ])
+
+        filters =
+          Jason.encode!([
+            [:is, "event:goal", [unquote(goal_name)]],
+            [:is, "event:props:url", ["https://two.com"]]
+          ])
+
+        conn =
+          get(
+            conn,
+            "/api/stats/#{site.domain}/custom-prop-values/url?period=day&with_imported=true&filters=#{filters}"
+          )
+
+        assert json_response(conn, 200)["results"] == [
+                 %{
+                   "visitors" => 5,
+                   "name" => "https://two.com",
+                   "events" => 10,
+                   "conversion_rate" => 50.0
+                 }
+               ]
+      end
     end
   end
 end

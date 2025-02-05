@@ -1,86 +1,186 @@
-import React, { Fragment, useState } from 'react';
+import React, { Fragment, useEffect, useState } from 'react';
 
-import * as storage from '../../util/storage'
-import * as url from '../../util/url'
-import * as api from '../../api'
-import ListReport from '../reports/list'
-import { VISITORS_METRIC, maybeWithCR } from '../reports/metrics';
-import { Menu, Transition } from '@headlessui/react'
-import { ChevronDownIcon } from '@heroicons/react/20/solid'
-import classNames from 'classnames'
+import * as storage from '../../util/storage';
+import * as url from '../../util/url';
+import * as api from '../../api';
+import usePrevious from '../../hooks/use-previous';
+import ListReport from '../reports/list';
+import * as metrics from '../reports/metrics';
+import { getFiltersByKeyPrefix, hasConversionGoalFilter } from "../../util/filters";
+import { Menu, Transition } from '@headlessui/react';
+import { ChevronDownIcon } from '@heroicons/react/20/solid';
+import classNames from 'classnames';
+import ImportedQueryUnsupportedWarning from '../imported-query-unsupported-warning';
+import { useQueryContext } from '../../query-context';
+import { useSiteContext } from '../../site-context';
+import { sourcesRoute, channelsRoute, utmCampaignsRoute, utmContentsRoute, utmMediumsRoute, utmSourcesRoute, utmTermsRoute } from '../../router';
 
 const UTM_TAGS = {
-  utm_medium: { label: 'UTM Medium', shortLabel: 'UTM Medium', endpoint: '/utm_mediums' },
-  utm_source: { label: 'UTM Source', shortLabel: 'UTM Source', endpoint: '/utm_sources' },
-  utm_campaign: { label: 'UTM Campaign', shortLabel: 'UTM Campai', endpoint: '/utm_campaigns' },
-  utm_content: { label: 'UTM Content', shortLabel: 'UTM Conten', endpoint: '/utm_contents' },
-  utm_term: { label: 'UTM Term', shortLabel: 'UTM Term', endpoint: '/utm_terms' },
+  utm_medium: { title: 'UTM Mediums', label: 'Medium', endpoint: '/utm_mediums' },
+  utm_source: { title: 'UTM Sources', label: 'Source', endpoint: '/utm_sources' },
+  utm_campaign: { title: 'UTM Campaigns', label: 'Campaign', endpoint: '/utm_campaigns' },
+  utm_content: { title: 'UTM Contents', label: 'Content', endpoint: '/utm_contents' },
+  utm_term: { title: 'UTM Terms', label: 'Term', endpoint: '/utm_terms' },
 }
 
-function AllSources(props) {
-  const { site, query } = props
-
+function AllSources({ afterFetchData }) {
+  const { query } = useQueryContext();
+  const site = useSiteContext();
   function fetchData() {
     return api.get(url.apiPath(site, '/sources'), query, { limit: 9 })
   }
 
   function getFilterFor(listItem) {
-    return { source: listItem['name'] }
+    return {
+      prefix: 'source',
+      filter: ["is", "source", [listItem['name']]]
+    }
   }
 
   function renderIcon(listItem) {
     return (
       <img
+        alt=""
         src={`/favicon/sources/${encodeURIComponent(listItem.name)}`}
-        className="inline w-4 h-4 mr-2 -mt-px align-middle"
+        className="w-4 h-4 mr-2"
       />
     )
+  }
+
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ meta: { plot: true } }),
+      hasConversionGoalFilter(query) && metrics.createConversionRate(),
+    ].filter(metric => !!metric)
   }
 
   return (
     <ListReport
       fetchData={fetchData}
+      afterFetchData={afterFetchData}
       getFilterFor={getFilterFor}
       keyLabel="Source"
-      metrics={maybeWithCR([VISITORS_METRIC], query)}
-      detailsLink={url.sitePath(site, '/sources')}
+      metrics={chooseMetrics()}
+      detailsLinkProps={{ path: sourcesRoute.path, search: (search) => search }}
       renderIcon={renderIcon}
-      query={query}
       color="bg-blue-50"
     />
   )
 }
 
-function UTMSources(props) {
-  const { site, query } = props
-  const utmTag = UTM_TAGS[props.tab]
+function Channels({ onClick, afterFetchData }) {
+  const { query } = useQueryContext();
+  const site = useSiteContext();
+
+  function fetchData() {
+    return api.get(url.apiPath(site, '/channels'), query, { limit: 9 })
+  }
+
+  function getFilterFor(listItem) {
+    return {
+      prefix: 'channel',
+      filter: ["is", "channel", [listItem['name']]]
+    }
+  }
+
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ meta: { plot: true } }),
+      hasConversionGoalFilter(query) && metrics.createConversionRate(),
+    ].filter(metric => !!metric)
+  }
+
+  return (
+    <ListReport
+      fetchData={fetchData}
+      afterFetchData={afterFetchData}
+      getFilterFor={getFilterFor}
+      keyLabel="Channel"
+      onClick={onClick}
+      metrics={chooseMetrics()}
+      detailsLinkProps={{ path: channelsRoute.path, search: (search) => search }}
+      color="bg-blue-50"
+    />
+  )
+}
+
+function UTMSources({ tab, afterFetchData }) {
+  const { query } = useQueryContext();
+  const site = useSiteContext();
+  const utmTag = UTM_TAGS[tab]
+
+  const route = {
+    utm_medium: utmMediumsRoute,
+    utm_source: utmSourcesRoute,
+    utm_campaign: utmCampaignsRoute,
+    utm_content: utmContentsRoute,
+    utm_term: utmTermsRoute,
+    }[tab]
 
   function fetchData() {
     return api.get(url.apiPath(site, utmTag.endpoint), query, { limit: 9 })
   }
 
   function getFilterFor(listItem) {
-    return { [props.tab]: listItem['name'] }
+    return {
+      prefix: tab,
+      filter: ["is", tab, [listItem['name']]]
+    }
+  }
+
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ meta: { plot: true } }),
+      hasConversionGoalFilter(query) && metrics.createConversionRate(),
+    ].filter(metric => !!metric)
   }
 
   return (
     <ListReport
       fetchData={fetchData}
+      afterFetchData={afterFetchData}
       getFilterFor={getFilterFor}
       keyLabel={utmTag.label}
-      metrics={maybeWithCR([VISITORS_METRIC], query)}
-      detailsLink={url.sitePath(site, utmTag.endpoint)}
-      query={query}
+      metrics={chooseMetrics()}
+      detailsLinkProps={{ path: route?.path, search: (search) => search }}
       color="bg-blue-50"
     />
   )
 }
 
-export default function SourceList(props) {
-  const { site, query } = props
-  const tabKey = 'sourceTab__' + props.site.domain
+const labelFor = {
+  'channels': 'Top Channels',
+  'all': 'Top Sources'
+}
+
+for (const [key, utm_tag] of Object.entries(UTM_TAGS)) {
+  labelFor[key] = utm_tag.title
+}
+
+export default function SourceList() {
+  const site = useSiteContext();
+  const { query } = useQueryContext();
+  const tabKey = 'sourceTab__' + site.domain
   const storedTab = storage.getItem(tabKey)
   const [currentTab, setCurrentTab] = useState(storedTab || 'all')
+  const [loading, setLoading] = useState(true)
+  const [skipImportedReason, setSkipImportedReason] = useState(null)
+  const previousQuery = usePrevious(query);
+
+  useEffect(() => setLoading(true), [query, currentTab])
+
+  useEffect(() => {
+    const isRemovingFilter = (filterName) => {
+      if (!previousQuery) return false
+
+      return getFiltersByKeyPrefix(previousQuery, filterName).length > 0 &&
+        getFiltersByKeyPrefix(query, filterName).length == 0
+    }
+
+    if (currentTab == 'all' && isRemovingFilter('channel')) {
+      setTab('channels')()
+    }
+  }, [query, currentTab])
 
   function setTab(tab) {
     return () => {
@@ -93,11 +193,14 @@ export default function SourceList(props) {
     const activeClass = 'inline-block h-5 text-indigo-700 dark:text-indigo-500 font-bold active-prop-heading truncate text-left'
     const defaultClass = 'hover:text-indigo-600 cursor-pointer truncate text-left'
     const dropdownOptions = Object.keys(UTM_TAGS)
-    let buttonText = UTM_TAGS[currentTab] ? UTM_TAGS[currentTab].label : 'Campaigns'
+    let buttonText = UTM_TAGS[currentTab] ? UTM_TAGS[currentTab].title : 'Campaigns'
 
     return (
       <div className="flex text-xs font-medium text-gray-500 dark:text-gray-400 space-x-2">
-        <div className={currentTab === 'all' ? activeClass : defaultClass} onClick={setTab('all')}>All</div>
+        {site.flags.channels &&
+          <div className={currentTab === 'channels' ? activeClass : defaultClass} onClick={setTab('channels')}>Channels</div>
+        }
+        <div className={currentTab === 'all' ? activeClass : defaultClass} onClick={setTab('all')}>Sources</div>
 
         <Menu as="div" className="relative inline-block text-left">
           <div>
@@ -130,7 +233,7 @@ export default function SourceList(props) {
                             currentTab === option ? 'font-bold' : ''
                           )}
                         >
-                          {UTM_TAGS[option].label}
+                          {UTM_TAGS[option].title}
                         </span>
                       )}
                     </Menu.Item>
@@ -144,21 +247,35 @@ export default function SourceList(props) {
     )
   }
 
+  function onChannelClick() {
+    setTab('all')()
+  }
+
   function renderContent() {
     if (currentTab === 'all') {
-      return <AllSources site={site} query={query} />
+      return <AllSources afterFetchData={afterFetchData} />
+    } else if (currentTab == 'channels') {
+      return <Channels onClick={onChannelClick} afterFetchData={afterFetchData} />
     } else {
-      return <UTMSources tab={currentTab} site={site} query={query} />
+      return <UTMSources tab={currentTab} afterFetchData={afterFetchData} />
     }
+  }
+
+  function afterFetchData(apiResponse) {
+    setLoading(false)
+    setSkipImportedReason(apiResponse.skip_imported_reason)
   }
 
   return (
     <div>
       {/* Header Container */}
       <div className="w-full flex justify-between">
-        <h3 className="font-bold dark:text-gray-100">
-          Top Sources
-        </h3>
+        <div className="flex gap-x-1">
+          <h3 className="font-bold dark:text-gray-100">
+            {labelFor[currentTab]}
+          </h3>
+          <ImportedQueryUnsupportedWarning loading={loading} skipImportedReason={skipImportedReason} />
+        </div>
         {renderTabs()}
       </div>
       {/* Main Contents */}

@@ -43,6 +43,7 @@ defmodule Plausible.ClickhouseSessionV2 do
     field :is_bounce, BoolUInt8
     field :entry_page, :string
     field :exit_page, :string
+    field :exit_page_hostname, :string
     field :pageviews, Ch, type: "Int32"
     field :events, Ch, type: "Int32"
     field :sign, Ch, type: "Int8"
@@ -57,6 +58,7 @@ defmodule Plausible.ClickhouseSessionV2 do
     field :utm_term, :string
     field :referrer, :string
     field :referrer_source, :string
+    field :click_id_param, Ch, type: "LowCardinality(String)"
 
     field :country_code, Ch, type: "LowCardinality(FixedString(2))"
     field :subdivision1_code, Ch, type: "LowCardinality(String)"
@@ -71,6 +73,8 @@ defmodule Plausible.ClickhouseSessionV2 do
     field :timestamp, :naive_datetime
 
     field :transferred_from, :string
+
+    field :acquisition_channel, Ch, type: "LowCardinality(String)", writable: :never
   end
 
   def random_uint64() do

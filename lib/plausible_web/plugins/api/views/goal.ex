@@ -11,7 +11,7 @@ defmodule PlausibleWeb.Plugins.API.Views.Goal do
         conn: conn
       }) do
     %{
-      goals: render_many(goals, __MODULE__, "goal.json", authorized_site: site),
+      goals: render_many(goals, __MODULE__, "goal.json", authorized_site: site, as: :goal),
       meta: render_metadata_links(metadata, :plugins_api_goals_url, :index, conn.query_params)
     }
   end
@@ -22,7 +22,7 @@ defmodule PlausibleWeb.Plugins.API.Views.Goal do
         conn: conn
       }) do
     %{
-      goals: render_many(goals, __MODULE__, "goal.json", authorized_site: site),
+      goals: render_many(goals, __MODULE__, "goal.json", authorized_site: site, as: :goal),
       meta: render_metadata_links(%{}, :plugins_api_goals_url, :index, conn.query_params)
     }
   end
@@ -34,7 +34,7 @@ defmodule PlausibleWeb.Plugins.API.Views.Goal do
       goal_type: "Goal.Pageview",
       goal: %{
         id: pageview.id,
-        display_name: to_string(pageview),
+        display_name: pageview.display_name,
         path: pageview.page_path
       }
     }
@@ -47,7 +47,7 @@ defmodule PlausibleWeb.Plugins.API.Views.Goal do
       goal_type: "Goal.CustomEvent",
       goal: %{
         id: custom_event.id,
-        display_name: to_string(custom_event),
+        display_name: custom_event.display_name,
         event_name: custom_event.event_name
       }
     }
@@ -61,7 +61,7 @@ defmodule PlausibleWeb.Plugins.API.Views.Goal do
       goal_type: "Goal.Revenue",
       goal: %{
         id: revenue_goal.id,
-        display_name: to_string(revenue_goal),
+        display_name: revenue_goal.display_name,
         event_name: revenue_goal.event_name,
         currency: revenue_goal.currency
       }

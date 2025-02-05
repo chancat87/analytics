@@ -1,6 +1,7 @@
 defmodule Plausible.Workers.ImportAnalyticsTest do
   use Plausible.DataCase
   use Bamboo.Test
+  use Plausible.Teams.Test
 
   alias Plausible.Imported.SiteImport
   alias Plausible.Workers.ImportAnalytics
@@ -22,8 +23,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
     test "updates site import after successful import", %{
       import_opts: import_opts
     } do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user)
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
 
@@ -47,8 +48,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
     test "clears stats_start_date field for the site after successful import", %{
       import_opts: import_opts
     } do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user], stats_start_date: ~D[2005-01-01])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user, stats_start_date: ~D[2005-01-01])
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
 
@@ -64,8 +65,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
     end
 
     test "sends email to owner after successful import", %{import_opts: import_opts} do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user)
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
 
@@ -80,9 +81,37 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
       )
     end
 
+    test "send email after successful import only to the user who ran the import", %{
+      import_opts: import_opts
+    } do
+      owner = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: owner)
+
+      importing_user = new_user()
+
+      add_guest(site, user: importing_user, role: :editor)
+
+      {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, importing_user, import_opts)
+
+      assert :ok =
+               job
+               |> Repo.reload!()
+               |> ImportAnalytics.perform()
+
+      assert_email_delivered_with(
+        to: [importing_user],
+        subject: "Noop data imported for #{site.domain}"
+      )
+
+      refute_email_delivered_with(
+        to: [owner],
+        subject: "Noop data imported for #{site.domain}"
+      )
+    end
+
     test "updates site import record after failed import", %{import_opts: import_opts} do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user)
       import_opts = Keyword.put(import_opts, :error, true)
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
@@ -96,8 +125,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
     end
 
     test "clears any orphaned data during import", %{import_opts: import_opts} do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user)
       import_opts = Keyword.put(import_opts, :error, true)
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
@@ -121,8 +150,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
     end
 
     test "sends email to owner after failed import", %{import_opts: import_opts} do
-      user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-      site = insert(:site, members: [user])
+      user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: user)
       import_opts = Keyword.put(import_opts, :error, true)
 
       {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
@@ -137,6 +166,35 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
         subject: "Noop import failed for #{site.domain}"
       )
     end
+
+    test "sends email after failed import only to the user who ran the import", %{
+      import_opts: import_opts
+    } do
+      owner = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+      site = new_site(owner: owner)
+      import_opts = Keyword.put(import_opts, :error, true)
+
+      importing_user = new_user()
+
+      add_guest(site, user: importing_user, role: :editor)
+
+      {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, importing_user, import_opts)
+
+      assert {:discard, _} =
+               job
+               |> Repo.reload!()
+               |> ImportAnalytics.perform()
+
+      assert_email_delivered_with(
+        to: [importing_user],
+        subject: "Noop import failed for #{site.domain}"
+      )
+
+      refute_email_delivered_with(
+        to: [owner],
+        subject: "Noop import failed for #{site.domain}"
+      )
+    end
   end
 
   describe "perform/1 notifications" do
@@ -145,6 +203,7 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Plausible.Repo, fn ->
           Repo.delete_all(Plausible.Site)
           Repo.delete_all(Plausible.Auth.User)
+          Repo.delete_all(Oban.Job)
         end)
 
         :ok
@@ -162,8 +221,9 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
       import_opts: import_opts
     } do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Plausible.Repo, fn ->
-        user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-        site = insert(:site, members: [user])
+        user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+        site = new_site(owner: user)
+        site_id = site.id
         import_opts = Keyword.put(import_opts, :listen?, true)
 
         {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
@@ -173,7 +233,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
         |> Repo.reload!()
         |> ImportAnalytics.perform()
 
-        assert_receive {:notification, :analytics_imports_jobs, %{"complete" => ^import_id}}
+        assert_receive {:notification, :analytics_imports_jobs,
+                        %{"event" => "complete", "import_id" => ^import_id, "site_id" => ^site_id}}
       end)
     end
 
@@ -181,8 +242,9 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
       import_opts: import_opts
     } do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Plausible.Repo, fn ->
-        user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-        site = insert(:site, members: [user])
+        user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+        site = new_site(owner: user)
+        site_id = site.id
 
         import_opts =
           import_opts
@@ -196,7 +258,8 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
         |> Repo.reload!()
         |> ImportAnalytics.perform()
 
-        assert_receive {:notification, :analytics_imports_jobs, %{"fail" => ^import_id}}
+        assert_receive {:notification, :analytics_imports_jobs,
+                        %{"event" => "fail", "import_id" => ^import_id, "site_id" => ^site_id}}
       end)
     end
 
@@ -204,8 +267,9 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
       import_opts: import_opts
     } do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Plausible.Repo, fn ->
-        user = insert(:user, trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
-        site = insert(:site, members: [user])
+        user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+        site = new_site(owner: user)
+        site_id = site.id
 
         import_opts =
           import_opts
@@ -226,7 +290,35 @@ defmodule Plausible.Workers.ImportAnalyticsTest do
           _ -> ImportAnalytics.import_fail_transient(site_import)
         end
 
-        assert_receive {:notification, :analytics_imports_jobs, %{"transient_fail" => ^import_id}}
+        assert_receive {:notification, :analytics_imports_jobs,
+                        %{
+                          "event" => "transient_fail",
+                          "import_id" => ^import_id,
+                          "site_id" => ^site_id
+                        }}
+      end)
+    end
+
+    test "sends oban notification to calling process on completion when listener setup separately",
+         %{
+           import_opts: import_opts
+         } do
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Plausible.Repo, fn ->
+        user = new_user(trial_expiry_date: Timex.today() |> Timex.shift(days: 1))
+        site = new_site(owner: user)
+        site_id = site.id
+
+        {:ok, job} = Plausible.Imported.NoopImporter.new_import(site, user, import_opts)
+        import_id = job.args[:import_id]
+
+        :ok = Plausible.Imported.Importer.listen()
+
+        job
+        |> Repo.reload!()
+        |> ImportAnalytics.perform()
+
+        assert_receive {:notification, :analytics_imports_jobs,
+                        %{"event" => "complete", "import_id" => ^import_id, "site_id" => ^site_id}}
       end)
     end
   end

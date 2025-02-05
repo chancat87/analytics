@@ -1,11 +1,12 @@
 defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
   use PlausibleWeb.ConnCase, async: true
   use Plausible
-  @moduletag :full_build_only
+  use Plausible.Teams.Test
+  @moduletag :ee_only
 
-  on_full_build do
-    @user_id 123
-    @other_user_id 456
+  on_ee do
+    @user_id Enum.random(1000..9999)
+    @other_user_id @user_id + 1
 
     @build_funnel_with [
       {"page_path", "/blog/announcement"},
@@ -15,7 +16,7 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
     ]
 
     describe "GET /api/stats/funnel - default" do
-      setup [:create_user, :log_in, :create_new_site]
+      setup [:create_user, :log_in, :create_site]
 
       test "computes funnel for a day", %{conn: conn, site: site} do
         {:ok, funnel} = setup_funnel(site, @build_funnel_with)
@@ -98,7 +99,7 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
       end
 
       test "computes all-time funnel with filters", %{conn: conn, user: user} do
-        site = insert(:site, stats_start_date: ~D[2020-01-01], members: [user])
+        site = new_site(stats_start_date: ~D[2020-01-01], owner: user)
         {:ok, funnel} = setup_funnel(site, @build_funnel_with)
 
         populate_stats(site, [
@@ -106,21 +107,21 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
           build(:pageview,
             pathname: "/blog/announcement",
             user_id: @other_user_id,
-            utm_medium: "social",
-            timestamp: ~N[2021-01-01 12:00:00]
+            timestamp: ~N[2021-01-01 12:00:00],
+            utm_medium: "social"
           ),
           build(:event, name: "Signup", user_id: @user_id),
           build(:event,
             name: "Signup",
             user_id: @other_user_id,
-            utm_medium: "social",
-            timestamp: ~N[2021-01-01 12:01:00]
+            timestamp: ~N[2021-01-01 12:01:00],
+            utm_medium: "social"
           ),
           build(:pageview, pathname: "/cart/add/product", user_id: @user_id),
           build(:event, name: "Purchase", user_id: @user_id)
         ])
 
-        filters = Jason.encode!(%{utm_medium: "social"})
+        filters = Jason.encode!([[:is, "visit:utm_medium", ["social"]]])
 
         resp =
           conn
@@ -228,8 +229,8 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
         user: user,
         site: site
       } do
-        insert(:growth_subscription, user: user)
         {:ok, funnel} = setup_funnel(site, @build_funnel_with)
+        subscribe_to_growth_plan(user)
 
         resp =
           conn
@@ -244,12 +245,12 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
     end
 
     describe "GET /api/stats/funnel - disallowed filters" do
-      setup [:create_user, :log_in, :create_new_site]
+      setup [:create_user, :log_in, :create_site]
 
       test "event:page", %{conn: conn, site: site} do
         {:ok, funnel} = setup_funnel(site, @build_funnel_with)
 
-        filters = Jason.encode!(%{page: "/pageA"})
+        filters = Jason.encode!([[:is, "event:page", ["/pageA"]]])
 
         resp =
           conn
@@ -266,7 +267,8 @@ defmodule PlausibleWeb.Api.StatsController.FunnelsTest do
       test "event:goal", %{conn: conn, site: site} do
         {:ok, funnel} = setup_funnel(site, @build_funnel_with)
 
-        filters = Jason.encode!(%{goal: "Signup", page: "/pageA"})
+        filters =
+          Jason.encode!([[:is, "event:goal", ["Signup"]], [:is, "event:page", ["/pageA"]]])
 
         resp =
           conn

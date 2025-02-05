@@ -15,8 +15,19 @@ defmodule Plausible.ClickhouseEventV2 do
     field :session_id, Ch, type: "UInt64"
     field :timestamp, :naive_datetime
 
+    field :"meta.key", {:array, :string}
+    field :"meta.value", {:array, :string}
+    field :scroll_depth, Ch, type: "UInt8"
+
+    field :revenue_source_amount, Ch, type: "Nullable(Decimal64(3))"
+    field :revenue_source_currency, Ch, type: "FixedString(3)"
+    field :revenue_reporting_amount, Ch, type: "Nullable(Decimal64(3))"
+    field :revenue_reporting_currency, Ch, type: "FixedString(3)"
+
+    # Session attributes
     field :referrer, :string
     field :referrer_source, :string
+    field :click_id_param, Ch, type: "LowCardinality(String)"
     field :utm_medium, :string
     field :utm_source, :string
     field :utm_campaign, :string
@@ -34,15 +45,7 @@ defmodule Plausible.ClickhouseEventV2 do
     field :browser, Ch, type: "LowCardinality(String)"
     field :browser_version, Ch, type: "LowCardinality(String)"
 
-    field :"meta.key", {:array, :string}
-    field :"meta.value", {:array, :string}
-
-    field :revenue_source_amount, Ch, type: "Nullable(Decimal64(3))"
-    field :revenue_source_currency, Ch, type: "FixedString(3)"
-    field :revenue_reporting_amount, Ch, type: "Nullable(Decimal64(3))"
-    field :revenue_reporting_currency, Ch, type: "FixedString(3)"
-
-    field :transferred_from, :string
+    field :acquisition_channel, Ch, type: "LowCardinality(String)", writable: :never
   end
 
   def new(attrs) do
@@ -56,24 +59,9 @@ defmodule Plausible.ClickhouseEventV2 do
         :pathname,
         :user_id,
         :timestamp,
-        :operating_system,
-        :operating_system_version,
-        :browser,
-        :browser_version,
-        :referrer,
-        :referrer_source,
-        :utm_medium,
-        :utm_source,
-        :utm_campaign,
-        :utm_content,
-        :utm_term,
-        :country_code,
-        :subdivision1_code,
-        :subdivision2_code,
-        :city_geoname_id,
-        :screen_size,
         :"meta.key",
         :"meta.value",
+        :scroll_depth,
         :revenue_source_amount,
         :revenue_source_currency,
         :revenue_reporting_amount,
@@ -81,5 +69,30 @@ defmodule Plausible.ClickhouseEventV2 do
       ]
     )
     |> validate_required([:name, :site_id, :hostname, :pathname, :user_id, :timestamp])
+  end
+
+  @session_properties [
+    :session_id,
+    :referrer,
+    :referrer_source,
+    :click_id_param,
+    :utm_medium,
+    :utm_source,
+    :utm_campaign,
+    :utm_content,
+    :utm_term,
+    :country_code,
+    :subdivision1_code,
+    :subdivision2_code,
+    :city_geoname_id,
+    :screen_size,
+    :operating_system,
+    :operating_system_version,
+    :browser,
+    :browser_version
+  ]
+
+  def merge_session(%__MODULE__{} = event, session) do
+    Map.merge(event, Map.take(session, @session_properties))
   end
 end

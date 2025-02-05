@@ -8,131 +8,143 @@ defmodule Plausible.Stats.Comparisons do
   """
 
   alias Plausible.Stats
+  alias Plausible.Stats.{Query, DateTimeRange, Time}
 
-  @modes ~w(previous_period year_over_year custom)
-  @disallowed_periods ~w(realtime all)
-
-  @type mode() :: String.t() | nil
-  @typep option() :: {:from, String.t()} | {:to, String.t()} | {:now, NaiveDateTime.t()}
-
-  @spec compare(Plausible.Site.t(), Stats.Query.t(), mode(), [option()]) ::
-          {:ok, Stats.Query.t()} | {:error, :not_supported} | {:error, :invalid_dates}
+  @spec get_comparison_query(Stats.Query.t(), map()) :: Stats.Query.t()
   @doc """
   Generates a comparison query based on the source query and comparison mode.
 
-  The mode parameter specifies the type of comparison and can be one of the
-  following:
-
-    * `"previous_period"` - shifts back the query by the same number of days the
-      source query has.
-
-    * `"year_over_year"` - shifts back the query by 1 year.
-
-    * `"custom"` - compares the query using a custom date range. See options for
-      more details.
-
-  The comparison query returned by the function has its end date restricted to
-  the current day. This can be overridden by the `now` option, described below.
+  Currently only historical periods are supported for comparisons (not `realtime`
+  and `30m` periods).
 
   ## Options
+    * `mode` (required) - specifies the type of comparison and can be one of the
+  following:
 
-    * `:now` - a `NaiveDateTime` struct with the current date and time. This is
-      optional and used for testing purposes.
+      * `"previous_period"` - shifts back the query by the same number of days the
+        source query has.
 
-    * `:from` - a ISO-8601 date string used when mode is `"custom"`.
+      * `"year_over_year"` - shifts back the query by 1 year.
 
-    * `:to` - a ISO-8601 date string used when mode is `"custom"`. Must be
-      after `from`.
+      * `"custom"` - compares the query using a custom date range. See `date_range` for
+        more details.
 
-    * `:match_day_of_week?` - determines whether the comparison query should be
+    * `:date_range` - a ISO-8601 date string pair used when mode is `"custom"`.
+
+    * `:match_day_of_week` - determines whether the comparison query should be
       adjusted to match the day of the week of the source query. When this option
       is set to true, the comparison query is shifted to start on the same day of
       the week as the source query, rather than on the exact same date. For
       example, if the source query starts on Sunday, January 1st, 2023 and the
-      `year_over_year` comparison query is configured to `match_day_of_week?`,
+      `year_over_year` comparison query is configured to `match_day_of_week`,
       it will be shifted to start on Sunday, January 2nd, 2022 instead of
       January 1st. Defaults to false.
 
   """
-  def compare(%Plausible.Site{} = site, %Stats.Query{} = source_query, mode, opts \\ []) do
-    opts =
-      opts
-      |> Keyword.put_new(:now, Timex.now(site.timezone))
-      |> Keyword.put_new(:match_day_of_week?, false)
+  def get_comparison_query(%Stats.Query{} = source_query, options) do
+    comparison_date_range = get_comparison_date_range(source_query, options)
 
-    with :ok <- validate_mode(source_query, mode),
-         {:ok, comparison_query} <- do_compare(source_query, mode, opts),
-         comparison_query <- maybe_include_imported(comparison_query, source_query, site),
-         do: {:ok, comparison_query}
+    new_range =
+      DateTimeRange.new!(
+        comparison_date_range.first,
+        comparison_date_range.last,
+        source_query.timezone
+      )
+      |> DateTimeRange.to_timezone("Etc/UTC")
+
+    source_query
+    |> Query.set(utc_time_range: new_range)
+    |> maybe_include_imported(source_query)
   end
 
-  defp do_compare(source_query, "year_over_year", opts) do
-    now = Keyword.fetch!(opts, :now)
+  @doc """
+  Builds comparison query that specifically filters for values appearing in the main query results.
 
-    start_date = Date.add(source_query.date_range.first, -365)
-    end_date = earliest(source_query.date_range.last, now) |> Date.add(-365)
+  When querying for comparisons with dimensions and pagination, extra
+  filters are added to ensure comparison query returns same set of results
+  as main query.
+  """
+  def add_comparison_filters(comparison_query, main_results_list) do
+    comparison_filters =
+      Enum.flat_map(main_results_list, &build_comparison_filter(&1, comparison_query))
 
-    range = Date.range(start_date, end_date)
-
-    comparison_query =
-      source_query
-      |> Map.put(:date_range, range)
-      |> maybe_match_day_of_week(source_query, opts)
-
-    {:ok, comparison_query}
+    comparison_query
+    |> add_query_filters(comparison_filters)
   end
 
-  defp do_compare(source_query, "previous_period", opts) do
-    now = Keyword.fetch!(opts, :now)
+  defp add_query_filters(query, []), do: query
 
-    last = earliest(source_query.date_range.last, now)
-    diff_in_days = Date.diff(source_query.date_range.first, last) - 1
-
-    new_first = Date.add(source_query.date_range.first, diff_in_days)
-    new_last = Date.add(last, diff_in_days)
-
-    range = Date.range(new_first, new_last)
-
-    comparison_query =
-      source_query
-      |> Map.put(:date_range, range)
-      |> maybe_match_day_of_week(source_query, opts)
-
-    {:ok, comparison_query}
+  defp add_query_filters(query, [filter]) do
+    query
+    |> Query.add_filter([:ignore_in_totals_query, filter])
+    |> Query.set(pagination: nil)
   end
 
-  defp do_compare(source_query, "custom", opts) do
-    with {:ok, from} <- opts |> Keyword.fetch!(:from) |> Date.from_iso8601(),
-         {:ok, to} <- opts |> Keyword.fetch!(:to) |> Date.from_iso8601(),
-         result when result in [:eq, :lt] <- Date.compare(from, to) do
-      {:ok, %Stats.Query{source_query | date_range: Date.range(from, to)}}
-    else
-      _error -> {:error, :invalid_dates}
+  defp add_query_filters(query, filters) do
+    query
+    |> Query.add_filter([:ignore_in_totals_query, [:or, filters]])
+    |> Query.set(pagination: nil)
+  end
+
+  defp build_comparison_filter(%{dimensions: dimension_labels}, query) do
+    query_filters =
+      query.dimensions
+      |> Enum.zip(dimension_labels)
+      |> Enum.reject(fn {dimension, _label} -> Time.time_dimension?(dimension) end)
+      |> Enum.map(fn {dimension, label} -> [:is, dimension, [label]] end)
+
+    case query_filters do
+      [] -> []
+      [filter] -> [filter]
+      filters -> [[:and, filters]]
     end
   end
 
-  defp earliest(a, b) do
-    if Date.compare(a, b) in [:eq, :lt], do: a, else: b
+  defp get_comparison_date_range(source_query, %{mode: "year_over_year"} = options) do
+    source_date_range = Query.date_range(source_query, trim_trailing: true)
+
+    start_date = source_date_range.first |> Date.shift(year: -1)
+    diff_in_days = Date.diff(source_date_range.last, source_date_range.first)
+    end_date = Date.add(start_date, diff_in_days)
+
+    Date.range(start_date, end_date)
+    |> maybe_match_day_of_week(source_date_range, options)
   end
 
-  defp maybe_match_day_of_week(comparison_query, source_query, opts) do
-    if Keyword.fetch!(opts, :match_day_of_week?) do
-      day_to_match = Date.day_of_week(source_query.date_range.first)
+  defp get_comparison_date_range(source_query, %{mode: "previous_period"} = options) do
+    source_date_range = Query.date_range(source_query, trim_trailing: true)
+
+    last = source_date_range.last
+    diff_in_days = Date.diff(source_date_range.first, last) - 1
+
+    new_first = Date.add(source_date_range.first, diff_in_days)
+    new_last = Date.add(last, diff_in_days)
+
+    Date.range(new_first, new_last)
+    |> maybe_match_day_of_week(source_date_range, options)
+  end
+
+  defp get_comparison_date_range(source_query, %{mode: "custom"} = options) do
+    DateTimeRange.to_date_range(options.date_range, source_query.timezone)
+  end
+
+  defp maybe_match_day_of_week(comparison_date_range, source_date_range, options) do
+    if options[:match_day_of_week] do
+      day_to_match = Date.day_of_week(source_date_range.first)
 
       new_first =
         shift_to_nearest(
           day_to_match,
-          comparison_query.date_range.first,
-          source_query.date_range.first
+          comparison_date_range.first,
+          source_date_range.first
         )
 
-      days_shifted = Date.diff(new_first, comparison_query.date_range.first)
-      new_last = Date.add(comparison_query.date_range.last, days_shifted)
+      days_shifted = Date.diff(new_first, comparison_date_range.first)
+      new_last = Date.add(comparison_date_range.last, days_shifted)
 
-      new_range = Date.range(new_first, new_last)
-      %Stats.Query{comparison_query | date_range: new_range}
+      Date.range(new_first, new_last)
     else
-      comparison_query
+      comparison_date_range
     end
   end
 
@@ -161,17 +173,13 @@ defmodule Plausible.Stats.Comparisons do
     Date.add(date, -days_to_subtract)
   end
 
-  defp maybe_include_imported(query, source_query, site) do
-    requested? = source_query.imported_data_requested
-    include_imported? = Stats.Query.include_imported?(query, site, requested?)
-    %Stats.Query{query | include_imported: include_imported?}
-  end
+  defp maybe_include_imported(query, source_query) do
+    requested? = source_query.include.imports
+    skip_imported_reason = Query.get_skip_imported_reason(query)
 
-  defp validate_mode(%Stats.Query{period: period}, mode) do
-    if mode in @modes && period not in @disallowed_periods do
-      :ok
-    else
-      {:error, :not_supported}
-    end
+    struct!(query,
+      include_imported: requested? and is_nil(skip_imported_reason),
+      skip_imported_reason: skip_imported_reason
+    )
   end
 end

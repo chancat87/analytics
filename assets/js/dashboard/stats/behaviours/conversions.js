@@ -1,39 +1,48 @@
 import React from 'react';
-import * as api from '../../api'
-import * as url from '../../util/url'
-import { escapeFilterValue } from '../../util/filters'
+import * as api from '../../api';
+import * as url from '../../util/url';
 
-import { CR_METRIC } from '../reports/metrics';
+import * as metrics from '../reports/metrics';
 import ListReport from '../reports/list';
+import { useSiteContext } from '../../site-context';
+import { useQueryContext } from '../../query-context';
+import { conversionsRoute } from '../../router';
 
-export default function Conversions(props) {
-  const { site, query } = props
+export default function Conversions({ afterFetchData, onGoalFilterClick }) {
+  const site = useSiteContext();
+  const { query } = useQueryContext()
 
   function fetchConversions() {
     return api.get(url.apiPath(site, '/conversions'), query, { limit: 9 })
   }
 
   function getFilterFor(listItem) {
-    return { goal: escapeFilterValue(listItem.name) }
+    return {
+      prefix: "goal",
+      filter: ["is", "goal", [listItem.name]],
+    }
+  }
+
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ renderLabel: (_query) => "Uniques", meta: { plot: true } }),
+      metrics.createEvents({ renderLabel: (_query) => "Total", meta: { hiddenOnMobile: true } }),
+      metrics.createConversionRate(),
+      BUILD_EXTRA && metrics.createTotalRevenue({ meta: { hiddenOnMobile: true } }),
+      BUILD_EXTRA && metrics.createAverageRevenue({ meta: { hiddenOnMobile: true } })
+    ].filter(metric => !!metric)
   }
 
   /*global BUILD_EXTRA*/
   return (
     <ListReport
       fetchData={fetchConversions}
+      afterFetchData={afterFetchData}
       getFilterFor={getFilterFor}
       keyLabel="Goal"
-      onClick={props.onGoalFilterClick}
-      metrics={[
-        { name: 'visitors', label: "Uniques", plot: true },
-        { name: 'events', label: "Total", hiddenOnMobile: true },
-        CR_METRIC,
-        BUILD_EXTRA && { name: 'total_revenue', label: 'Revenue', hiddenOnMobile: true },
-        BUILD_EXTRA && { name: 'average_revenue', label: 'Average', hiddenOnMobile: true }
-      ]}
-      detailsLink={url.sitePath(site, '/conversions')}
-      maybeHideDetails={true}
-      query={query}
+      onClick={onGoalFilterClick}
+      metrics={chooseMetrics()}
+      detailsLinkProps={{ path: conversionsRoute.path, search: (search) => search }}
       color="bg-red-50"
       colMinWidth={90}
     />

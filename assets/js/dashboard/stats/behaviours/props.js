@@ -1,45 +1,65 @@
-import React, { useCallback, useState, useEffect } from "react";
-import ListReport from "../reports/list";
-import Combobox from '../../components/combobox'
-import * as api from '../../api'
-import * as url from '../../util/url'
-import { CR_METRIC, PERCENTAGE_METRIC } from "../reports/metrics";
+import React, { useCallback, useEffect, useState } from "react";
+import ListReport, { MIN_HEIGHT } from "../reports/list";
+import Combobox from '../../components/combobox';
+import * as metrics from '../reports/metrics';
+import * as api from '../../api';
+import * as url from '../../util/url';
 import * as storage from "../../util/storage";
-import { parsePrefix, escapeFilterValue } from "../../util/filters"
+import { EVENT_PROPS_PREFIX, getGoalFilter, FILTER_OPERATIONS, hasConversionGoalFilter } from "../../util/filters";
+import classNames from "classnames";
+import { useQueryContext } from "../../query-context";
+import { useSiteContext } from "../../site-context";
+import { customPropsRoute } from "../../router";
 
 
-export default function Properties(props) {
-  const { site, query } = props
+export default function Properties({ afterFetchData }) {
+  const { query } = useQueryContext();
+  const site = useSiteContext();
+
   const propKeyStorageName = `prop_key__${site.domain}`
-  const propKeyStorageNameForGoal = `${query.filters.goal}__prop_key__${site.domain}`
+  const propKeyStorageNameForGoal = () => {
+    const [_operation, _filterKey, [goal]] = getGoalFilter(query)
+    return `${goal}__prop_key__${site.domain}`
+  }
 
-  const [propKey, setPropKey] = useState(choosePropKey())
-
-  useEffect(() => {
-    setPropKey(choosePropKey())
-  }, [query.filters.goal, query.filters.props])
+  const [propKey, setPropKey] = useState(null)
+  const [propKeyLoading, setPropKeyLoading] = useState(true)
 
   function singleGoalFilterApplied() {
-    const goalFilter = query.filters.goal
+    const goalFilter = getGoalFilter(query)
     if (goalFilter) {
-      const { type, values } = parsePrefix(goalFilter)
-      return type === 'is' && values.length === 1
+      const [operation, _filterKey, clauses] = goalFilter
+      return operation === FILTER_OPERATIONS.is && clauses.length === 1
     } else {
       return false
     }
   }
 
-  function choosePropKey() {
-    if (query.filters.props) {
-      return Object.keys(query.filters.props)[0]
-    } else {
-      return getPropKeyFromStorage()
-    }
-  }
+  useEffect(() => {
+    setPropKeyLoading(true)
+    setPropKey(null)
+
+    fetchPropKeyOptions()("").then((propKeys) => {
+      const propKeyValues = propKeys.map(entry => entry.value)
+
+      if (propKeyValues.length > 0) {
+        const storedPropKey = getPropKeyFromStorage()
+
+        if (propKeyValues.includes(storedPropKey)) {
+          setPropKey(storedPropKey)
+        } else {
+          setPropKey(propKeys[0].value)
+        }
+      }
+
+      setPropKeyLoading(false)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
 
   function getPropKeyFromStorage() {
     if (singleGoalFilterApplied()) {
-      const storedForGoal = storage.getItem(propKeyStorageNameForGoal)
+      const storedForGoal = storage.getItem(propKeyStorageNameForGoal())
       if (storedForGoal) { return storedForGoal }
     }
 
@@ -54,6 +74,7 @@ export default function Properties(props) {
     return (input) => {
       return api.get(url.apiPath(site, "/suggestions/prop_key"), query, { q: input.trim() })
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query])
 
   function onPropKeySelect() {
@@ -61,7 +82,7 @@ export default function Properties(props) {
       const newPropKey = selectedOptions.length === 0 ? null : selectedOptions[0].value
 
       if (newPropKey) {
-        const storageName = singleGoalFilterApplied() ? propKeyStorageNameForGoal : propKeyStorageName
+        const storageName = singleGoalFilterApplied() ? propKeyStorageNameForGoal() : propKeyStorageName
         storage.setItem(storageName, newPropKey)
       }
 
@@ -70,22 +91,27 @@ export default function Properties(props) {
   }
 
   /*global BUILD_EXTRA*/
+  function chooseMetrics() {
+    return [
+      metrics.createVisitors({ renderLabel: (_query) => "Visitors", meta: { plot: true } }),
+      metrics.createEvents({ renderLabel: (_query) => "Events", meta: { hiddenOnMobile: true } }),
+      hasConversionGoalFilter(query) && metrics.createConversionRate(),
+      !hasConversionGoalFilter(query) && metrics.createPercentage(),
+      BUILD_EXTRA && metrics.createTotalRevenue({ meta: { hiddenOnMobile: true } }),
+      BUILD_EXTRA && metrics.createAverageRevenue({ meta: { hiddenOnMobile: true } })
+    ].filter(metric => !!metric)
+  }
+
   function renderBreakdown() {
     return (
       <ListReport
         fetchData={fetchProps}
+        afterFetchData={afterFetchData}
         getFilterFor={getFilterFor}
         keyLabel={propKey}
-        metrics={[
-          { name: 'visitors', label: 'Visitors', plot: true },
-          { name: 'events', label: 'Events', hiddenOnMobile: true },
-          query.filters.goal ? CR_METRIC : PERCENTAGE_METRIC,
-          BUILD_EXTRA && { name: 'total_revenue', label: 'Revenue', hiddenOnMobile: true },
-          BUILD_EXTRA && { name: 'average_revenue', label: 'Average', hiddenOnMobile: true }
-        ]}
-        detailsLink={url.sitePath(site, `/custom-prop-values/${propKey}`)}
+        metrics={chooseMetrics()}
+        detailsLinkProps={{ path: customPropsRoute.path, params: { propKey }, search: (search) => search }}
         maybeHideDetails={true}
-        query={query}
         color="bg-red-50"
         colMinWidth={90}
       />
@@ -93,15 +119,23 @@ export default function Properties(props) {
   }
 
   const getFilterFor = (listItem) => ({
-    props: JSON.stringify({ ...query.filters.props, [propKey]: escapeFilterValue(listItem.name) })
+    prefix: `${EVENT_PROPS_PREFIX}${propKey}`,
+    filter: ["is", `${EVENT_PROPS_PREFIX}${propKey}`, [listItem.name]]
   })
+
+  const comboboxDisabled = !propKeyLoading && !propKey
+  const comboboxPlaceholder = comboboxDisabled ? 'No custom properties found' : ''
   const comboboxValues = propKey ? [{ value: propKey, label: propKey }] : []
-  const boxClass = 'pl-2 pr-8 py-1 bg-transparent dark:text-gray-300 rounded-md shadow-sm border border-gray-300 dark:border-gray-500'
+  const boxClass = classNames('pl-2 pr-8 py-1 bg-transparent dark:text-gray-300 rounded-md shadow-sm border border-gray-300 dark:border-gray-500', {
+    'pointer-events-none': comboboxDisabled
+  })
+
+  const COMBOBOX_HEIGHT = 40
 
   return (
-    <div className="w-full mt-4">
-      <div>
-        <Combobox boxClass={boxClass} fetchOptions={fetchPropKeyOptions()} singleOption={true} values={comboboxValues} onSelect={onPropKeySelect()} placeholder={'Select a property'} />
+    <div className="w-full mt-4" style={{ minHeight: `${COMBOBOX_HEIGHT + MIN_HEIGHT}px` }}>
+      <div style={{ minHeight: `${COMBOBOX_HEIGHT}px` }}>
+        <Combobox boxClass={boxClass} forceLoading={propKeyLoading} fetchOptions={fetchPropKeyOptions()} singleOption={true} values={comboboxValues} onSelect={onPropKeySelect()} placeholder={comboboxPlaceholder} />
       </div>
       {propKey && renderBreakdown()}
     </div>
