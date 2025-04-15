@@ -4,22 +4,19 @@
     <meta charset="utf-8">
     <meta http-equiv="x-ua-compatible" content="ie=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="generator" content="ExDoc v0.31.1">
+    <meta name="generator" content="ExDoc v0.35.1">
     <meta name="project" content="Plausible v0.0.1">
 
 
     <title>Plausible.Release — Plausible v0.0.1</title>
-    <link rel="stylesheet" href="dist/html-elixir-FM2CSD74.css" />
+    <link rel="stylesheet" href="dist/html-elixir-P45HOAC7.css" />
 
 
     <script src="dist/handlebars.runtime-NWIB6V2M.js"></script>
-    <script src="dist/handlebars.templates-43PMFBC7.js"></script>
-    <script src="dist/sidebar_items-4B488B2F.js"></script>
-
-      <script src="docs_config.js"></script>
-
-    <script async src="dist/html-L4O5OK2K.js"></script>
-
+    <script src="dist/handlebars.templates-K7URE6B4.js"></script>
+    <script src="dist/sidebar_items-1E9A18AD.js"></script>
+    <script src="docs_config.js"></script>
+    <script async src="dist/html-PVRIOB7F.js"></script>
 
   </head>
   <body data-type="modules" class="page-module">
@@ -37,13 +34,11 @@
       } catch (error) { }
     </script>
 
-<div class="main">
+<div class="body-wrapper">
 
 <button id="sidebar-menu" class="sidebar-button sidebar-toggle" aria-label="toggle sidebar" aria-controls="sidebar">
   <i class="ri-menu-line ri-lg" title="Collapse/expand sidebar"></i>
 </button>
-
-<div class="background-layer"></div>
 
 <nav id="sidebar" class="sidebar">
 
@@ -103,45 +98,46 @@ Pages
 
 <main class="content">
   <output role="status" id="toast"></output>
-  <div class="content-outer">
-    <div id="content" class="content-inner">
-      <div class="top-search">
-        <div class="search-settings">
-          <form class="search-bar" action="search.html">
-            <label class="search-label">
-              <span class="sr-only">Search documentation of Plausible</span>
-              <input name="q" type="text" class="search-input" placeholder="Search Documentation (press /)" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-            </label>
-            <button type="submit" class="search-button" aria-label="Submit Search">
-              <i class="ri-search-2-line ri-lg" aria-hidden="true" title="Submit search"></i>
-            </button>
-            <button type="button" tabindex="-1" class="search-close-button" aria-hidden="true">
-              <i class="ri-close-line ri-lg" title="Cancel search"></i>
-            </button>
-          </form>
-          <div class="autocomplete">
-          </div>
-          <button class="icon-settings display-settings">
-            <i class="ri-settings-3-line"></i>
-            <span class="sr-only">Settings</span>
+
+  <div id="content" class="content-inner">
+    <div class="top-search">
+      <div class="search-settings">
+        <form class="search-bar" action="search.html">
+          <label class="search-label">
+            <span class="sr-only">Search documentation of Plausible</span>
+            <input name="q" type="text" class="search-input" placeholder="Press / to search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          </label>
+          <button type="submit" class="search-button" aria-label="Submit Search">
+            <i class="ri-search-2-line ri-lg" aria-hidden="true" title="Submit search"></i>
           </button>
+          <button type="button" tabindex="-1" class="search-close-button" aria-hidden="true">
+            <i class="ri-close-line ri-lg" title="Cancel search"></i>
+          </button>
+        </form>
+        <div class="autocomplete">
         </div>
-
+        <button class="icon-settings display-settings">
+          <i class="ri-settings-3-line"></i>
+          <span class="sr-only">Settings</span>
+        </button>
       </div>
+    </div>
 
-<h1>
+<div id="top-content">
+  <h1>
 
-    <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L1" title="View Source" class="icon-action" rel="help">
-      <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-      <span class="sr-only">View Source</span>
-    </a>
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L1" title="View Source" class="icon-action" rel="help">
+        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
+        <span class="sr-only">View Source</span>
+      </a>
 
-  <span translate="no">Plausible.Release</span> 
-  <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
+    <span translate="no">Plausible.Release</span> 
+    <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
 
-</h1>
+  </h1>
 
 
+</div>
 
   <section id="summary" class="details-list">
     <h1 class="section-heading">
@@ -157,7 +153,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#configure_ref_inspector/0" translate="no">configure_ref_inspector()</a>
+        <a href="#configure_ref_inspector/0" data-no-tooltip translate="no">configure_ref_inspector()</a>
 
       </div>
 
@@ -165,7 +161,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#configure_ua_inspector/0" translate="no">configure_ua_inspector()</a>
+        <a href="#configure_ua_inspector/0" data-no-tooltip translate="no">configure_ua_inspector()</a>
 
       </div>
 
@@ -173,7 +169,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#createdb/0" translate="no">createdb()</a>
+        <a href="#createdb/1" data-no-tooltip translate="no">createdb(repos \\ repos())</a>
 
       </div>
 
@@ -181,7 +177,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#dump_plans/0" translate="no">dump_plans()</a>
+        <a href="#dump_plans/0" data-no-tooltip translate="no">dump_plans()</a>
 
       </div>
 
@@ -189,7 +185,17 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#migrate/0" translate="no">migrate()</a>
+        <a href="#interweave_migrate/1" data-no-tooltip translate="no">interweave_migrate(repos \\ repos())</a>
+
+      </div>
+
+        <div class="summary-synopsis"><p><a href="#interweave_migrate/0"><code class="inline">interweave_migrate/0</code></a> is a migration function that</p></div>
+
+    </div>
+
+    <div class="summary-row">
+      <div class="summary-signature">
+        <a href="#pending_streaks/1" data-no-tooltip translate="no">pending_streaks(repos \\ repos())</a>
 
       </div>
 
@@ -197,7 +203,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#pending_migrations/0" translate="no">pending_migrations()</a>
+        <a href="#rollback/0" data-no-tooltip translate="no">rollback()</a>
 
       </div>
 
@@ -205,7 +211,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#rollback/0" translate="no">rollback()</a>
+        <a href="#seed/0" data-no-tooltip translate="no">seed()</a>
 
       </div>
 
@@ -213,15 +219,7 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#seed/0" translate="no">seed()</a>
-
-      </div>
-
-    </div>
-
-    <div class="summary-row">
-      <div class="summary-signature">
-        <a href="#should_be_first_launch?/0" translate="no">should_be_first_launch?()</a>
+        <a href="#should_be_first_launch?/0" data-no-tooltip translate="no">should_be_first_launch?()</a>
 
       </div>
 
@@ -243,15 +241,13 @@ Pages
 <section class="detail" id="configure_ref_inspector/0">
 
   <div class="detail-header">
-    <a href="#configure_ref_inspector/0" class="detail-link" title="Link to this function">
+    <a href="#configure_ref_inspector/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">configure_ref_inspector()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L71" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L172" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -265,15 +261,13 @@ Pages
 <section class="detail" id="configure_ua_inspector/0">
 
   <div class="detail-header">
-    <a href="#configure_ua_inspector/0" class="detail-link" title="Link to this function">
+    <a href="#configure_ua_inspector/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">configure_ua_inspector()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L76" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L177" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -284,18 +278,18 @@ Pages
 
   </section>
 </section>
-<section class="detail" id="createdb/0">
+<section class="detail" id="createdb/1">
+
+    <span id="createdb/0"></span>
 
   <div class="detail-header">
-    <a href="#createdb/0" class="detail-link" title="Link to this function">
+    <a href="#createdb/1" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
-    <h1 class="signature" translate="no">createdb()</h1>
+    <h1 class="signature" translate="no">createdb(repos \\ repos())</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L43" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L144" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -309,15 +303,13 @@ Pages
 <section class="detail" id="dump_plans/0">
 
   <div class="detail-header">
-    <a href="#dump_plans/0" class="detail-link" title="Link to this function">
+    <a href="#dump_plans/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">dump_plans()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L81" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L182" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -328,18 +320,18 @@ Pages
 
   </section>
 </section>
-<section class="detail" id="migrate/0">
+<section class="detail" id="interweave_migrate/1">
+
+    <span id="interweave_migrate/0"></span>
 
   <div class="detail-header">
-    <a href="#migrate/0" class="detail-link" title="Link to this function">
+    <a href="#interweave_migrate/1" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
-    <h1 class="signature" translate="no">migrate()</h1>
+    <h1 class="signature" translate="no">interweave_migrate(repos \\ repos())</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L22" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L59" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -347,21 +339,30 @@ Pages
 
   <section class="docstring">
 
-
+<p><a href="#interweave_migrate/0"><code class="inline">interweave_migrate/0</code></a> is a migration function that:</p><ul><li>Lists all pending migrations across multiple repositories.</li><li>Sorts these migrations into a single list.</li><li>Groups consecutive migrations by repository into &quot;streaks&quot;.</li><li>Executes the migrations in the correct order by processing each streak sequentially.</li></ul><h3 id="interweave_migrate/1-why-use-this-approach" class="section-heading">
+  <a href="#interweave_migrate/1-why-use-this-approach" class="hover-link">
+    <i class="ri-link-m" aria-hidden="true"></i>
+  </a>
+  <span class="text">Why Use This Approach?</span>
+</h3>
+<p>This function resolves dependencies between migrations that span across different repositories.
+The default <code class="inline">migrate/0</code> function migrates each repository independently, which may result in
+migrations running in the wrong order when there are cross-repository dependencies.</p><p>Consider the following example (adapted from reality, not 100% accurate):</p><ul><li><strong>Migration 1</strong>: The PostgreSQL (PG) repository creates a table named <code class="inline">site_imports</code>.</li><li><strong>Migration 2</strong>: The ClickHouse (CH) repository creates <code class="inline">import_id</code> columns in <code class="inline">imported_*</code> tables.</li><li><strong>Migration 3</strong>: The PG repository runs a data migration that utilizes both PG and CH databases,
+reading from the <code class="inline">import_id</code> column in <code class="inline">imported_*</code> tables.</li></ul><p>The default <code class="inline">migrate/0</code> would execute these migrations by repository, resulting in the following order:</p><ol><li>Migration 1 (PG)</li><li>Migration 3 (PG)</li><li>Migration 2 (CH)</li></ol><p>This sequence would fail at Migration 3, as the <code class="inline">import_id</code> columns in the CH repository have not been created yet.</p><p><a href="#interweave_migrate/0"><code class="inline">interweave_migrate/0</code></a> addresses this issue by consolidating all pending migrations into a single, ordered queue:</p><ol><li>Migration 1 (PG)</li><li>Migration 2 (CH)</li><li>Migration 3 (PG)</li></ol><p>This ensures all dependencies are resolved in the correct order.</p>
   </section>
 </section>
-<section class="detail" id="pending_migrations/0">
+<section class="detail" id="pending_streaks/1">
+
+    <span id="pending_streaks/0"></span>
 
   <div class="detail-header">
-    <a href="#pending_migrations/0" class="detail-link" title="Link to this function">
+    <a href="#pending_streaks/1" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
-    <h1 class="signature" translate="no">pending_migrations()</h1>
+    <h1 class="signature" translate="no">pending_streaks(repos \\ repos())</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L28" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L106" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -375,15 +376,13 @@ Pages
 <section class="detail" id="rollback/0">
 
   <div class="detail-header">
-    <a href="#rollback/0" class="detail-link" title="Link to this function">
+    <a href="#rollback/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">rollback()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L53" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L154" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -397,15 +396,13 @@ Pages
 <section class="detail" id="seed/0">
 
   <div class="detail-header">
-    <a href="#seed/0" class="detail-link" title="Link to this function">
+    <a href="#seed/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">seed()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L35" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L136" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -419,15 +416,13 @@ Pages
 <section class="detail" id="should_be_first_launch?/0">
 
   <div class="detail-header">
-    <a href="#should_be_first_launch?/0" class="detail-link" title="Link to this function">
+    <a href="#should_be_first_launch?/0" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
-      <span class="sr-only">Link to this function</span>
     </a>
     <h1 class="signature" translate="no">should_be_first_launch?()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L14" class="icon-action" rel="help" title="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible_release.ex#L14" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-       <span class="sr-only">View Source</span>
      </a>
 
 
@@ -442,34 +437,33 @@ Pages
     </div>
   </section>
 
-      <footer class="footer">
-        <p>
+    <footer class="footer">
+      <p>
 
-          <span class="line">
-            <button class="a-main footer-button display-quick-switch" title="Search HexDocs packages">
-              Search HexDocs
-            </button>
+        <span class="line">
+          <button class="a-main footer-button display-quick-switch" title="Search HexDocs packages">
+            Search HexDocs
+          </button>
 
-              <a href="Plausible.epub" title="ePub version">
-                Download ePub version
-              </a>
+            <a href="Plausible.epub" title="ePub version">
+              Download ePub version
+            </a>
 
-          </span>
-        </p>
+        </span>
+      </p>
 
-        <p class="built-using">
-          Built using
-          <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" target="_blank" rel="help noopener" translate="no">ExDoc</a> (v0.31.1) for the
+      <p class="built-using">
+        Built using
+        <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" target="_blank" rel="help noopener" translate="no">ExDoc</a> (v0.35.1) for the
 
-            <a href="https://elixir-lang.org" title="Elixir" target="_blank" translate="no">Elixir programming language</a>
+          <a href="https://elixir-lang.org" title="Elixir" target="_blank" translate="no">Elixir programming language</a>
 
-        </p>
-      </footer>
-    </div>
+      </p>
+
+    </footer>
   </div>
 </main>
 </div>
-
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({startOnLoad: true})</script>
 
