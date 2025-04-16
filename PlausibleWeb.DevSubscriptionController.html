@@ -8,13 +8,13 @@
     <meta name="project" content="Plausible v0.0.1">
 
 
-    <title>Plausible.Site.Memberships — Plausible v0.0.1</title>
+    <title>PlausibleWeb.DevSubscriptionController — Plausible v0.0.1</title>
     <link rel="stylesheet" href="dist/html-elixir-P45HOAC7.css" />
 
 
     <script src="dist/handlebars.runtime-NWIB6V2M.js"></script>
     <script src="dist/handlebars.templates-K7URE6B4.js"></script>
-    <script src="dist/sidebar_items-A5FC60FB.js"></script>
+    <script src="dist/sidebar_items-7AC1F5FE.js"></script>
     <script src="docs_config.js"></script>
     <script async src="dist/html-PVRIOB7F.js"></script>
 
@@ -126,20 +126,16 @@ Pages
 <div id="top-content">
   <h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L1" title="View Source" class="icon-action" rel="help">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L1" title="View Source" class="icon-action" rel="help">
         <i class="ri-code-s-slash-line" aria-hidden="true"></i>
         <span class="sr-only">View Source</span>
       </a>
 
-    <span translate="no">Plausible.Site.Memberships</span> 
+    <span translate="no">PlausibleWeb.DevSubscriptionController</span> 
     <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
 
   </h1>
 
-
-    <section id="moduledoc">
-<p>API for site memberships and invitations</p>
-    </section>
 
 </div>
 
@@ -157,61 +153,49 @@ Pages
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#accept_invitation/3" data-no-tooltip translate="no">accept_invitation(invitation_id, user, team \\ nil)</a>
+        <a href="#cancel/2" data-no-tooltip translate="no">cancel(conn, map)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.AcceptInvitation.html#accept_invitation/3"><code class="inline">Plausible.Site.Memberships.AcceptInvitation.accept_invitation/3</code></a>.</p></div>
 
     </div>
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#bulk_create_invitation/5" data-no-tooltip translate="no">bulk_create_invitation(sites, inviter, invitee_email, role, opts)</a>
+        <a href="#cancel_form/2" data-no-tooltip translate="no">cancel_form(conn, params)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.CreateInvitation.html#bulk_create_invitation/5"><code class="inline">Plausible.Site.Memberships.CreateInvitation.bulk_create_invitation/5</code></a>.</p></div>
 
     </div>
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#bulk_transfer_ownership_direct/3" data-no-tooltip translate="no">bulk_transfer_ownership_direct(sites, new_owner, team \\ nil)</a>
+        <a href="#create/2" data-no-tooltip translate="no">create(conn, map)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.AcceptInvitation.html#bulk_transfer_ownership_direct/3"><code class="inline">Plausible.Site.Memberships.AcceptInvitation.bulk_transfer_ownership_direct/3</code></a>.</p></div>
 
     </div>
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#create_invitation/4" data-no-tooltip translate="no">create_invitation(site, inviter, invitee_email, role)</a>
+        <a href="#create_form/2" data-no-tooltip translate="no">create_form(conn, map)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.CreateInvitation.html#create_invitation/4"><code class="inline">Plausible.Site.Memberships.CreateInvitation.create_invitation/4</code></a>.</p></div>
 
     </div>
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#reject_invitation/2" data-no-tooltip translate="no">reject_invitation(invitation_id, user)</a>
+        <a href="#update/2" data-no-tooltip translate="no">update(conn, map)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.RejectInvitation.html#reject_invitation/2"><code class="inline">Plausible.Site.Memberships.RejectInvitation.reject_invitation/2</code></a>.</p></div>
 
     </div>
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#remove_invitation/2" data-no-tooltip translate="no">remove_invitation(invitation_id, site)</a>
+        <a href="#update_form/2" data-no-tooltip translate="no">update_form(conn, params)</a>
 
       </div>
-
-        <div class="summary-synopsis"><p>See <a href="Plausible.Site.Memberships.RemoveInvitation.html#remove_invitation/2"><code class="inline">Plausible.Site.Memberships.RemoveInvitation.remove_invitation/2</code></a>.</p></div>
 
     </div>
 
@@ -228,17 +212,15 @@ Pages
       <span class="text">Functions</span>
     </h1>
     <div class="functions-list">
-<section class="detail" id="accept_invitation/3">
-
-    <span id="accept_invitation/2"></span>
+<section class="detail" id="cancel/2">
 
   <div class="detail-header">
-    <a href="#accept_invitation/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#cancel/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">accept_invitation(invitation_id, user, team \\ nil)</h1>
+    <h1 class="signature" translate="no">cancel(conn, map)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L8" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L60" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -247,18 +229,18 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.AcceptInvitation.html#accept_invitation/3"><code class="inline">Plausible.Site.Memberships.AcceptInvitation.accept_invitation/3</code></a>.</p>
+
   </section>
 </section>
-<section class="detail" id="bulk_create_invitation/5">
+<section class="detail" id="cancel_form/2">
 
   <div class="detail-header">
-    <a href="#bulk_create_invitation/5" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#cancel_form/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">bulk_create_invitation(sites, inviter, invitee_email, role, opts)</h1>
+    <h1 class="signature" translate="no">cancel_form(conn, params)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L17" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L32" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -267,20 +249,18 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.CreateInvitation.html#bulk_create_invitation/5"><code class="inline">Plausible.Site.Memberships.CreateInvitation.bulk_create_invitation/5</code></a>.</p>
+
   </section>
 </section>
-<section class="detail" id="bulk_transfer_ownership_direct/3">
-
-    <span id="bulk_transfer_ownership_direct/2"></span>
+<section class="detail" id="create/2">
 
   <div class="detail-header">
-    <a href="#bulk_transfer_ownership_direct/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#create/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">bulk_transfer_ownership_direct(sites, new_owner, team \\ nil)</h1>
+    <h1 class="signature" translate="no">create(conn, map)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L20" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L44" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -289,18 +269,18 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.AcceptInvitation.html#bulk_transfer_ownership_direct/3"><code class="inline">Plausible.Site.Memberships.AcceptInvitation.bulk_transfer_ownership_direct/3</code></a>.</p>
+
   </section>
 </section>
-<section class="detail" id="create_invitation/4">
+<section class="detail" id="create_form/2">
 
   <div class="detail-header">
-    <a href="#create_invitation/4" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#create_form/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">create_invitation(site, inviter, invitee_email, role)</h1>
+    <h1 class="signature" translate="no">create_form(conn, map)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L14" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L13" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -309,18 +289,18 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.CreateInvitation.html#create_invitation/4"><code class="inline">Plausible.Site.Memberships.CreateInvitation.create_invitation/4</code></a>.</p>
+
   </section>
 </section>
-<section class="detail" id="reject_invitation/2">
+<section class="detail" id="update/2">
 
   <div class="detail-header">
-    <a href="#reject_invitation/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#update/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">reject_invitation(invitation_id, user)</h1>
+    <h1 class="signature" translate="no">update(conn, map)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L11" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L50" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -329,18 +309,18 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.RejectInvitation.html#reject_invitation/2"><code class="inline">Plausible.Site.Memberships.RejectInvitation.reject_invitation/2</code></a>.</p>
+
   </section>
 </section>
-<section class="detail" id="remove_invitation/2">
+<section class="detail" id="update_form/2">
 
   <div class="detail-header">
-    <a href="#remove_invitation/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#update_form/2" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">remove_invitation(invitation_id, site)</h1>
+    <h1 class="signature" translate="no">update_form(conn, params)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/site/memberships.ex#L12" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/test/support/dev/controllers/dev_subscription_controller.ex#L20" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -349,7 +329,7 @@ Pages
 
   <section class="docstring">
 
-<p>See <a href="Plausible.Site.Memberships.RemoveInvitation.html#remove_invitation/2"><code class="inline">Plausible.Site.Memberships.RemoveInvitation.remove_invitation/2</code></a>.</p>
+
   </section>
 </section>
 
