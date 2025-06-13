@@ -3,6 +3,10 @@ import { prePageviewTrack, postPageviewTrack, onPageviewIgnored } from './engage
 import { config, scriptEl, location, document } from './config'
 
 export function track(eventName, options) {
+  if (COMPILE_PLAUSIBLE_NPM && !config.isInitialized) {
+    throw new Error('plausible.track() can only be called after plausible.init()')
+  }
+
   var isPageview = eventName === 'pageview'
 
   if (isPageview) {
@@ -51,7 +55,7 @@ export function track(eventName, options) {
   payload.v = COMPILE_TRACKER_SCRIPT_VERSION
 
   if (COMPILE_MANUAL) {
-    var customURL = options && options.u
+    var customURL = options && (options.u || options.url)
 
     payload.u = customURL ? customURL : location.href
   } else {
@@ -105,6 +109,14 @@ export function track(eventName, options) {
 
   if (COMPILE_HASH && (!COMPILE_CONFIG || config.hashBasedRouting)) {
     payload.h = 1
+  }
+
+  if ((COMPILE_PLAUSIBLE_WEB || COMPILE_PLAUSIBLE_NPM) && typeof config.transformRequest === 'function') {
+    payload = config.transformRequest(payload)
+
+    if (!payload) {
+      return onIgnoredEvent(eventName, options, 'transformRequest')
+    }
   }
 
   if (isPageview) {
