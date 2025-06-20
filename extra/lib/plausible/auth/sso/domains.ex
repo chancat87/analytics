@@ -7,7 +7,10 @@ defmodule Plausible.Auth.SSO.Domains do
 
   alias Plausible.Auth
   alias Plausible.Auth.SSO
+  alias Plausible.Auth.SSO.Domain.Verification
   alias Plausible.Repo
+
+  use Plausible.Auth.SSO.Domain.Status
 
   @spec add(SSO.Integration.t(), String.t()) ::
           {:ok, SSO.Domain.t()} | {:error, Ecto.Changeset.t()}
@@ -17,24 +20,73 @@ defmodule Plausible.Auth.SSO.Domains do
     Repo.insert(changeset)
   end
 
+  @spec start_verification(String.t()) :: SSO.Domain.t()
+  def start_verification(domain) when is_binary(domain) do
+    {:ok, result} =
+      Repo.transaction(fn ->
+        with {:ok, sso_domain} <- get(domain) do
+          sso_domain = mark_unverified!(sso_domain, Status.in_progress())
+          {:ok, _} = Verification.Worker.enqueue(domain)
+          {:ok, sso_domain}
+        end
+      end)
+
+    result
+  end
+
+  @spec cancel_verification(String.t()) :: :ok
+  def cancel_verification(domain) when is_binary(domain) do
+    {:ok, :ok} =
+      Repo.transaction(fn ->
+        with {:ok, sso_domain} <- get(domain) do
+          mark_unverified!(sso_domain, Status.unverified())
+        end
+
+        :ok = Verification.Worker.cancel(domain)
+      end)
+
+    :ok
+  end
+
   @spec verify(SSO.Domain.t(), Keyword.t()) :: SSO.Domain.t()
-  def verify(sso_domain, opts \\ []) do
+  def verify(%SSO.Domain{} = sso_domain, opts \\ []) do
     skip_checks? = Keyword.get(opts, :skip_checks?, false)
     verification_opts = Keyword.get(opts, :verification_opts, [])
     now = Keyword.get(opts, :now, NaiveDateTime.utc_now(:second))
 
     if skip_checks? do
-      mark_valid(sso_domain, :dns_txt, now)
+      mark_verified!(sso_domain, :dns_txt, now)
     else
-      case SSO.Domain.Validation.run(sso_domain.domain, sso_domain.identifier, verification_opts) do
+      case SSO.Domain.Verification.run(
+             sso_domain.domain,
+             sso_domain.identifier,
+             verification_opts
+           ) do
         {:ok, step} ->
-          mark_valid(sso_domain, step, now)
+          mark_verified!(sso_domain, step, now)
 
-        {:error, :invalid} ->
-          mark_invalid(sso_domain, now)
+        {:error, :unverified} ->
+          mark_unverified!(sso_domain, :in_progress, now)
       end
+    end
+  end
 
-      mark_invalid(sso_domain, now)
+  @spec get(String.t()) :: {:ok, SSO.Domain.t()} | {:error, :not_found}
+  def get(domain) when is_binary(domain) do
+    result =
+      from(
+        d in SSO.Domain,
+        inner_join: i in assoc(d, :sso_integration),
+        inner_join: t in assoc(i, :team),
+        where: d.domain == ^domain,
+        preload: [sso_integration: {i, team: t}]
+      )
+      |> Repo.one()
+
+    if result do
+      {:ok, result}
+    else
+      {:error, :not_found}
     end
   end
 
@@ -48,7 +100,7 @@ defmodule Plausible.Auth.SSO.Domains do
         inner_join: i in assoc(d, :sso_integration),
         inner_join: t in assoc(i, :team),
         where: d.domain == ^search,
-        where: d.status == :validated,
+        where: d.status == ^Status.verified(),
         preload: [sso_integration: {i, team: t}]
       )
       |> Repo.one()
@@ -69,17 +121,21 @@ defmodule Plausible.Auth.SSO.Domains do
 
     case {check, force_deprovision?} do
       {:ok, _} ->
-        Repo.delete!(sso_domain)
+        {:ok, :ok} =
+          Repo.transaction(fn ->
+            Repo.delete!(sso_domain)
+            :ok = cancel_verification(sso_domain.domain)
+          end)
+
         :ok
 
       {{:error, :sso_users_present}, true} ->
-        domain_users = users_by_domain(sso_domain)
-
         {:ok, :ok} =
           Repo.transaction(fn ->
+            domain_users = users_by_domain(sso_domain)
             Enum.each(domain_users, &SSO.deprovision_user!/1)
             Repo.delete!(sso_domain)
-            :ok
+            cancel_verification(sso_domain.domain)
           end)
 
         :ok
@@ -114,6 +170,21 @@ defmodule Plausible.Auth.SSO.Domains do
     end
   end
 
+  @spec mark_verified!(SSO.Domain.t(), SSO.Domain.verification_method(), NaiveDateTime.t()) ::
+          SSO.Domain.t()
+  def mark_verified!(sso_domain, method, now \\ NaiveDateTime.utc_now(:second)) do
+    sso_domain
+    |> SSO.Domain.verified_changeset(method, now)
+    |> Repo.update!()
+  end
+
+  @spec mark_unverified!(SSO.Domain.t(), atom(), NaiveDateTime.t()) :: SSO.Domain.t()
+  def mark_unverified!(sso_domain, status, now \\ NaiveDateTime.utc_now(:second)) do
+    sso_domain
+    |> SSO.Domain.unverified_changeset(now, status)
+    |> Repo.update!()
+  end
+
   defp users_by_domain(sso_domain) do
     sso_domain
     |> users_by_domain_query()
@@ -141,17 +212,5 @@ defmodule Plausible.Auth.SSO.Domains do
     |> List.last()
     |> String.trim()
     |> String.downcase()
-  end
-
-  defp mark_valid(sso_domain, method, now) do
-    sso_domain
-    |> SSO.Domain.valid_changeset(method, now)
-    |> Repo.update!()
-  end
-
-  defp mark_invalid(sso_domain, now) do
-    sso_domain
-    |> SSO.Domain.invalid_changeset(now)
-    |> Repo.update!()
   end
 end

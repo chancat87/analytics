@@ -2,14 +2,16 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
   @moduledoc false
   use Plausible.CustomerSupport.Resource, :component
 
+  alias Plausible.Auth.SSO
+  alias Plausible.Billing.EnterprisePlan
   alias Plausible.Billing.{Plans, Subscription}
+  alias Plausible.Repo
   alias Plausible.Teams
   alias Plausible.Teams.Management.Layout
-  alias Plausible.Billing.EnterprisePlan
-
   alias PlausibleWeb.Router.Helpers, as: Routes
 
-  alias Plausible.Repo
+  require Plausible.Billing.Subscription.Status
+
   import Ecto.Query
 
   def update(%{resource_id: resource_id}, socket) do
@@ -19,13 +21,26 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
 
     usage = Teams.Billing.quota_usage(team, with_features: true)
 
+    sso_integration = get_sso_integration(team)
+
     limits = %{
       monthly_pageviews: Teams.Billing.monthly_pageview_limit(team),
       sites: Teams.Billing.site_limit(team),
       team_members: Teams.Billing.team_member_limit(team)
     }
 
-    {:ok, assign(socket, team: team, form: form, usage: usage, limits: limits)}
+    {:ok,
+     assign(socket,
+       team: team,
+       form: form,
+       usage: usage,
+       limits: limits,
+       sso_integration: sso_integration
+     )}
+  end
+
+  def update(%{tab: "sso"}, %{assigns: %{team: _team}} = socket) do
+    {:ok, assign(socket, tab: "sso")}
   end
 
   def update(%{tab: "sites"}, %{assigns: %{team: team}} = socket) do
@@ -99,12 +114,6 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
     ~H"""
     <div>
       <script type="text/javascript">
-        const numberFormatCallback = function(e) {
-          const numeric = Number(e.target.value.replace(/[^0-9]/g, ''))
-          const value = numeric > 0 ? new Intl.NumberFormat("en-GB").format(numeric) : ''
-          e.target.value = value
-        }
-
         const featureChangeCallback = function(e) {
           const value = e.target.value
           const checked = e.target.checked
@@ -140,19 +149,6 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
               </div>
             </div>
 
-            <span :if={Teams.locked?(@team)} class="flex items-center">
-              <Heroicons.lock_closed solid class="inline stroke-2 w-4 h-4 text-red-400 mr-2" />
-              <.styled_link id="unlock-dashboards" phx-click="unlock" phx-target={@myself}>
-                Unlock Dashboards
-              </.styled_link>
-            </span>
-
-            <span :if={not Teams.locked?(@team)} class="flex items-center font-xs">
-              <Heroicons.lock_open class="inline stroke-2 w-4 h-4 text-gray-800 mr-2" />
-              <.styled_link id="lock-dashboards" phx-click="lock" phx-target={@myself}>
-                Lock Dashboards
-              </.styled_link>
-            </span>
             <div class="mt-5 flex justify-center sm:mt-0">
               <.input_with_clipboard
                 id="team-identifier"
@@ -178,6 +174,9 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
               <.tab to="sites" tab={@tab}>
                 Sites ({number_format(@usage.sites)}/{number_format(@limits.sites)})
               </.tab>
+              <.tab :if={@sso_integration} to="sso" tab={@tab}>
+                SSO
+              </.tab>
               <.tab to="billing" tab={@tab}>
                 Billing
               </.tab>
@@ -189,6 +188,28 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
           <div class="px-6 py-5 text-center text-sm font-medium">
             <span>
               <strong>Subscription status</strong> <br />{subscription_status(@team)}
+              <div :if={
+                @team.subscription && @team.subscription.status == Subscription.Status.deleted() &&
+                  !@team.grace_period
+              }>
+                <span class="flex items-center gap-x-8 justify-center mt-1">
+                  <div :if={not Teams.locked?(@team)}>
+                    <Heroicons.lock_open solid class="inline stroke-2 w-4 h-4 text-red-400 mr-1" />
+                    <.styled_link
+                      phx-click="refund-lock"
+                      phx-target={@myself}
+                      data-confirm="Are you sure you want to lock? The only way to unlock, is for the user to resubscribe."
+                    >
+                      Refund Lock
+                    </.styled_link>
+                  </div>
+
+                  <div :if={Teams.locked?(@team)}>
+                    <Heroicons.lock_closed solid class="inline stroke-2 w-4 h-4 text-red-400 mr-1" />
+                    Locked
+                  </div>
+                </span>
+              </div>
             </span>
           </div>
           <div class="px-6 py-5 text-center text-sm font-medium">
@@ -199,8 +220,68 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
           <div class="px-6 py-5 text-center text-sm font-medium">
             <span>
               <strong>Grace Period</strong> <br />{grace_period_status(@team)}
+
+              <div :if={@team.grace_period}>
+                <span class="flex items-center gap-x-8 justify-center mt-1">
+                  <div>
+                    <Heroicons.lock_open solid class="inline stroke-2 w-4 h-4 text-red-400 mr-1" />
+                    <.styled_link phx-click="unlock" phx-target={@myself}>Unlock</.styled_link>
+                  </div>
+
+                  <div>
+                    <Heroicons.lock_closed solid class="inline stroke-2 w-4 h-4 text-red-400 mr-1" />
+                    <.styled_link phx-click="lock" phx-target={@myself}>Lock</.styled_link>
+                  </div>
+                </span>
+              </div>
             </span>
           </div>
+        </div>
+
+        <div :if={@tab == "sso"} class="mt-4 mb-4 text-gray-900 dark:text-gray-400">
+          <p :if={@sso_integration} class="mb-4">
+            Configured?: <code>{SSO.Integration.configured?(@sso_integration)}</code>
+            <br /> IDP Signin URL:
+            <code>
+              {@sso_integration.config.idp_signin_url}
+            </code>
+            <br />IDP Entity ID: <code>{@sso_integration.config.idp_entity_id}</code>
+          </p>
+          <.table
+            :if={not Enum.empty?(@sso_integration.sso_domains)}
+            rows={@sso_integration.sso_domains}
+          >
+            <:thead>
+              <.th>Domain</.th>
+              <.th>Status</.th>
+              <.th></.th>
+            </:thead>
+            <:tbody :let={sso_domain}>
+              <.td>
+                {sso_domain.domain}
+              </.td>
+              <.td>
+                {sso_domain.status}
+                <span :if={sso_domain.verified_via}>
+                  (via {sso_domain.verified_via} at {Calendar.strftime(
+                    sso_domain.last_verified_at,
+                    "%b %-d, %Y"
+                  )})
+                </span>
+              </.td>
+              <.td actions>
+                <.delete_button
+                  :if={can_delete?(sso_domain)}
+                  id={"remove-domain-#{sso_domain.identifier}"}
+                  phx-click="remove-domain"
+                  phx-value-identifier={sso_domain.identifier}
+                  phx-target={@myself}
+                  class="text-sm text-red-600"
+                  data-confirm={"Are you sure you want to remove domain '#{sso_domain.domain}'?"}
+                />
+              </.td>
+            </:tbody>
+          </.table>
         </div>
 
         <div :if={@tab == "billing"} class="mt-4 mb-4 text-gray-900 dark:text-gray-400">
@@ -292,32 +373,43 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
               autocomplete="off"
             />
 
-            <.input
-              x-init="numberFormatCallback({target: $el})"
-              x-on:input="numberFormatCallback(event)"
-              field={f[:monthly_pageview_limit]}
-              label="Monthly Pageview Limit"
-              autocomplete="off"
-            />
-            <.input
-              x-init="numberFormatCallback({target: $el})"
-              x-on:input="numberFormatCallback(event)"
-              field={f[:site_limit]}
-              label="Site Limit"
-              autocomplete="off"
-            />
-            <.input
-              field={f[:team_member_limit]}
-              label="Team Member Limit (-1/unlimited for unlimited)"
-              autocomplete="off"
-            />
-            <.input
-              x-init="numberFormatCallback({target: $el})"
-              x-on:input="numberFormatCallback(event)"
-              field={f[:hourly_api_request_limit]}
-              label="Hourly API Request Limit"
-              autocomplete="off"
-            />
+            <div class="flex items-center gap-x-4">
+              <.input
+                field={f[:monthly_pageview_limit]}
+                label="Monthly Pageview Limit"
+                autocomplete="off"
+                width="w-[500]"
+              />
+
+              <.preview for={f[:monthly_pageview_limit]} />
+            </div>
+            <div class="flex items-center gap-x-4">
+              <.input width="w-[500]" field={f[:site_limit]} label="Site Limit" autocomplete="off" />
+
+              <.preview for={f[:site_limit]} />
+            </div>
+
+            <div class="flex items-center gap-x-4">
+              <.input
+                field={f[:team_member_limit]}
+                label="Team Member Limit"
+                autocomplete="off"
+                width="w-[500]"
+              />
+
+              <.preview for={f[:team_member_limit]} />
+            </div>
+
+            <div class="flex items-center gap-x-4">
+              <.input
+                field={f[:hourly_api_request_limit]}
+                label="Hourly API Request Limit"
+                autocomplete="off"
+                width="w-[500]"
+              />
+
+              <.preview for={f[:hourly_api_request_limit]} />
+            </div>
 
             <.input
               :for={
@@ -328,10 +420,9 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
               :if={not mod.free?()}
               x-on:change="featureChangeCallback(event)"
               type="checkbox"
-              name={"#{f.name}[features[]][]"}
-              value={mod.name()}
+              value={mod in (f.source.changes[:features] || [])}
+              name={"#{f.name}[features[]][#{mod.name()}]"}
               label={mod.display_name()}
-              checked={mod in (f.source.changes[:features] || [])}
             />
 
             <div class="mt-8 flex align-center gap-x-4">
@@ -374,8 +465,8 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
 
         <div :if={@tab == "overview"} class="mt-8">
           <.form :let={f} for={@form} phx-submit="save-team" phx-target={@myself}>
-            <.input field={f[:trial_expiry_date]} label="Trial Expiry Date" />
-            <.input field={f[:accept_traffic_until]} label="Accept  traffic Until" />
+            <.input field={f[:trial_expiry_date]} type="date" label="Trial Expiry Date" />
+            <.input field={f[:accept_traffic_until]} type="date" label="Accept  traffic Until" />
             <.input
               type="checkbox"
               field={f[:allow_next_upgrade_override]}
@@ -501,10 +592,10 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
   def render_result(assigns) do
     ~H"""
     <div class="flex-1 -mt-px w-full">
-      <div class="w-full flex items-center justify-between space-x-2">
+      <div class="w-full flex items-center justify-between space-x-4">
         <div class={[
           team_bg(@resource.object.identifier),
-          "rounded-full p-1 flex items-center justify-center mr-2"
+          "rounded-full p-1 flex items-center justify-center"
         ]}>
           <Heroicons.user_group class="h-4 w-4 text-white" />
         </div>
@@ -525,10 +616,6 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
         >
           $
         </span>
-
-        <span :if={Teams.locked?(@resource.object)} class="inline-flex items-center">
-          <Heroicons.lock_closed solid class="inline stroke-2 w-4 h-4 text-red-400 mr-2" />
-        </span>
       </div>
 
       <hr class="mt-4 mb-4 flex-grow border-t border-gray-200 dark:border-gray-600" />
@@ -546,6 +633,12 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
 
   def handle_event("show-plan-form", _, socket) do
     {:noreply, assign(socket, show_plan_form?: true)}
+  end
+
+  def handle_event("remove-domain", %{"identifier" => i}, socket) do
+    domain = Enum.find(socket.assigns.sso_integration.sso_domains, &(&1.identifier == i))
+    SSO.Domains.remove(domain)
+    {:noreply, assign(socket, sso_integration: get_sso_integration(socket.assigns.team))}
   end
 
   def handle_event("hide-plan-form", _, socket) do
@@ -645,6 +738,20 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
 
   def handle_event("lock", _, socket) do
     {:noreply, lock_team(socket)}
+  end
+
+  def handle_event("refund-lock", _, socket) do
+    team = socket.assigns.team
+
+    {:ok, team} =
+      Repo.transaction(fn ->
+        yesterday = Date.shift(Date.utc_today(), day: -1)
+        Plausible.Billing.SiteLocker.set_lock_status_for(team, true)
+        Repo.update!(Subscription.changeset(team.subscription, %{next_bill_date: yesterday}))
+        Resource.Team.get(team.id)
+      end)
+
+    {:noreply, assign(socket, team: team)}
   end
 
   def team_bg(term) do
@@ -762,15 +869,28 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
   end
 
   defp lock_team(socket) do
-    team = Teams.admin_lock!(socket.assigns.team)
-    success(socket, "Team locked")
-    assign(socket, team: team)
+    if socket.assigns.team.grace_period do
+      team = Plausible.Teams.end_grace_period(socket.assigns.team)
+      Plausible.Billing.SiteLocker.set_lock_status_for(team, true)
+
+      success(socket, "Team locked. Grace period ended.")
+      assign(socket, team: team)
+    else
+      failure(socket, "No grace period")
+      socket
+    end
   end
 
   defp unlock_team(socket) do
-    team = Teams.admin_unlock!(socket.assigns.team)
-    success(socket, "Team unlocked")
-    assign(socket, team: team)
+    if socket.assigns.team.grace_period do
+      team = Plausible.Teams.remove_grace_period(socket.assigns.team)
+      Plausible.Billing.SiteLocker.set_lock_status_for(team, false)
+
+      success(socket, "Team unlocked. Grace period removed.")
+      assign(socket, team: team)
+    else
+      socket
+    end
   end
 
   defp monthly_pageviews_usage(usage, limit) do
@@ -799,34 +919,11 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
 
   defp number_format(other), do: other
 
-  @numeric_fields [
-    "team_id",
-    "paddle_plan_id",
-    "monthly_pageview_limit",
-    "site_limit",
-    "team_member_limit",
-    "hourly_api_request_limit"
-  ]
-
   defp sanitize_params(params) do
     params
     |> Enum.map(&clear_param/1)
     |> Enum.reject(&(&1 == ""))
     |> Map.new()
-  end
-
-  defp clear_param({key, value}) when key in @numeric_fields do
-    if value in ["unlimited", "-1"] do
-      {key, value}
-    else
-      value =
-        value
-        |> to_string()
-        |> String.replace(~r/[^0-9-]/, "")
-        |> String.trim()
-
-      {key, value}
-    end
   end
 
   defp clear_param({key, value}) when is_binary(value) do
@@ -848,6 +945,48 @@ defmodule PlausibleWeb.CustomerSupport.Live.Team do
   end
 
   defp update_features_to_list(params) do
-    Map.put(params, "features", Enum.reject(params["features[]"], &(&1 == "false" or &1 == "")))
+    features =
+      params["features[]"]
+      |> Enum.reject(fn {_key, value} -> value == "false" or value == "" end)
+      |> Enum.map(fn {key, _value} -> key end)
+
+    Map.put(params, "features", features)
+  end
+
+  defp preview_number(n) do
+    case Integer.parse("#{n}") do
+      {n, ""} ->
+        number_format(n) <> " (#{PlausibleWeb.StatsView.large_number_format(n)})"
+
+      _ ->
+        "0"
+    end
+  end
+
+  attr :for, :any, required: true
+
+  defp preview(assigns) do
+    ~H"""
+    <.input
+      name={"#{@for.name}-preview"}
+      label="Preview"
+      autocomplete="off"
+      width="w-[500]"
+      readonly
+      value={preview_number(@for.value)}
+      class="bg-transparent border-0 p-0 m-0 text-sm w-full"
+    />
+    """
+  end
+
+  defp can_delete?(sso_domain) do
+    Plausible.Auth.SSO.Domains.check_can_remove(sso_domain) == :ok
+  end
+
+  defp get_sso_integration(team) do
+    case SSO.get_integration_for(team) do
+      {:error, :not_found} -> nil
+      {:ok, integration} -> integration
+    end
   end
 end

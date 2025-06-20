@@ -8,7 +8,9 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
     import Phoenix.LiveViewTest
     import Plausible.Test.Support.HTML
 
-    alias Plausible.Teams
+    alias Plausible.Auth.SSO
+
+    require Plausible.Billing.Subscription.Status
 
     defp open_team(id, qs \\ []) do
       Routes.customer_support_resource_path(
@@ -34,31 +36,70 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
         assert text(html) =~ team.name
       end
 
+      test "grace period handling", %{conn: conn, user: user} do
+        team = team_of(user)
+        {:ok, _, html} = live(conn, open_team(team.id))
+        refute text(html) =~ "Lock"
+        refute text(html) =~ "Unlock"
+
+        Plausible.Teams.start_grace_period(team)
+
+        {:ok, lv, html} = live(conn, open_team(team.id))
+
+        assert element_exists?(html, ~s|a[phx-click="lock"]|)
+        assert element_exists?(html, ~s|a[phx-click="unlock"]|)
+
+        refute Plausible.Repo.reload!(team).locked
+
+        lv |> element(~s|a[phx-click="lock"]|) |> render_click()
+
+        team = Plausible.Repo.reload!(team)
+        assert team.locked
+        assert team.grace_period.is_over
+
+        lv |> element(~s|a[phx-click="unlock"]|) |> render_click()
+
+        team = Plausible.Repo.reload!(team)
+        refute team.locked
+        refute team.grace_period
+      end
+
+      test "refund lock handling", %{conn: conn, user: user} do
+        team = team_of(user)
+        {:ok, _lv, html} = live(conn, open_team(team.id))
+        refute text(html) =~ "Refund Lock"
+        refute text(html) =~ "Locked"
+
+        subscribe_to_growth_plan(user,
+          status: Plausible.Billing.Subscription.Status.deleted()
+        )
+
+        {:ok, lv, html} = live(conn, open_team(team.id))
+
+        assert text(html) =~ "Refund Lock"
+        lv |> element(~s|a[phx-click="refund-lock"]|) |> render_click()
+
+        assert text(render(lv)) =~ "Locked"
+
+        team = Plausible.Repo.reload!(team)
+        assert team.locked
+        refute team.grace_period
+
+        assert Date.diff(
+                 Plausible.Teams.with_subscription(team).subscription.next_bill_date,
+                 Date.utc_today()
+               ) == -1
+
+        # make sure this team doesn't unlock automatically
+        Plausible.Workers.LockSites.perform(nil)
+        team = Plausible.Repo.reload!(team)
+        assert team.locked
+      end
+
       test "404", %{conn: conn} do
         assert_raise Ecto.NoResultsError, fn ->
           {:ok, _lv, _html} = live(conn, open_team(9999))
         end
-      end
-
-      test "lock/unlock a team", %{user: user, conn: conn} do
-        team = team_of(user)
-        {:ok, lv, html} = live(conn, open_team(team.id))
-        refute element_exists?(html, "#unlock-dashboards")
-
-        lv |> element("#lock-dashboards") |> render_click()
-        html = render(lv)
-
-        assert text(html) =~ "Team locked"
-        assert Teams.locked?(Plausible.Repo.reload!(team))
-
-        refute element_exists?(html, "#lock-dashboards")
-        assert element_exists?(html, "#unlock-dashboards")
-
-        lv |> element("#unlock-dashboards") |> render_click()
-        html = render(lv)
-
-        assert text(html) =~ "Team unlocked"
-        refute Teams.locked?(Plausible.Repo.reload!(team))
       end
     end
 
@@ -87,23 +128,23 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
         |> render_change(%{
           "enterprise_plan" => %{
             "billing_interval" => "yearly",
-            "monthly_pageview_limit" => "20,000,000",
-            "site_limit" => "1,000",
+            "monthly_pageview_limit" => "20000000",
+            "site_limit" => "1000",
             "team_member_limit" => "30",
-            "hourly_api_request_limit" => "1,000",
-            "features[]" => [
-              "false",
-              "false",
-              "false",
-              "teams",
-              "false",
-              "shared_links",
-              "false",
-              "false",
-              "false",
-              "false",
-              "sites_api"
-            ]
+            "hourly_api_request_limit" => "1000",
+            "features[]" => %{
+              "stats_api" => "false",
+              "outbound_links" => "false",
+              "form_submissions" => "false",
+              "file_downloads" => "false",
+              "funnels" => "false",
+              "props" => "false",
+              "shared_segments" => "false",
+              "revenue_goals" => "false",
+              "site_segments" => "false",
+              "shared_links" => "true",
+              "sites_api" => "true"
+            }
           }
         })
 
@@ -120,22 +161,23 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
           "enterprise_plan" => %{
             "paddle_plan_id" => "1111",
             "billing_interval" => "yearly",
-            "monthly_pageview_limit" => "20,000,000",
-            "site_limit" => "1,000",
+            "monthly_pageview_limit" => "20000000",
+            "site_limit" => "1000",
             "team_member_limit" => "30",
-            "hourly_api_request_limit" => "1,000",
-            "features[]" => [
-              "false",
-              "false",
-              "false",
-              "false",
-              "shared_links",
-              "false",
-              "false",
-              "false",
-              "false",
-              "sites_api"
-            ]
+            "hourly_api_request_limit" => "1000",
+            "features[]" => %{
+              "stats_api" => "false",
+              "outbound_links" => "false",
+              "form_submissions" => "false",
+              "file_downloads" => "false",
+              "funnels" => "false",
+              "props" => "false",
+              "shared_segments" => "false",
+              "revenue_goals" => "false",
+              "site_segments" => "false",
+              "shared_links" => "true",
+              "sites_api" => "true"
+            }
           }
         })
 
@@ -177,10 +219,10 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
           "enterprise_plan" => %{
             "paddle_plan_id" => "1111",
             "billing_interval" => "yearly",
-            "monthly_pageview_limit" => "20,000,000",
-            "site_limit" => "1,000",
+            "monthly_pageview_limit" => "20000000",
+            "site_limit" => "1000",
             "team_member_limit" => "unlimited",
-            "hourly_api_request_limit" => "1,000"
+            "hourly_api_request_limit" => "1000"
           }
         })
 
@@ -194,6 +236,57 @@ defmodule PlausibleWeb.Live.CustomerSupport.TeamsTest do
         render(lv)
         lv |> element("button#new-custom-plan") |> render_click()
         lv
+      end
+    end
+
+    describe "sso" do
+      setup [:create_user, :log_in, :create_site]
+
+      setup %{user: user} do
+        patch_env(:super_admin_user_ids, [user.id])
+      end
+
+      test "sso tab normally won't render", %{conn: conn, user: user} do
+        team = team_of(user)
+        {:ok, _lv, html} = live(conn, open_team(team.id))
+
+        refute element_exists?(html, ~s|a[href="?tab=sso"]|)
+      end
+
+      test "tab renders when there's sso integration", %{conn: conn, user: user} do
+        team = team_of(user)
+
+        SSO.initiate_saml_integration(team)
+
+        {:ok, _lv, html} = live(conn, open_team(team.id))
+
+        assert element_exists?(html, ~s|a[href="?tab=sso"]|)
+      end
+
+      test "sso tab displays domains", %{conn: conn, user: user} do
+        team = team_of(user)
+
+        integration = SSO.initiate_saml_integration(team)
+
+        SSO.Domains.add(integration, "sso1.example.com")
+        SSO.Domains.add(integration, "sso2.example.com")
+
+        {:ok, lv, _html} = live(conn, open_team(team.id, tab: :sso))
+
+        html = render(lv)
+
+        assert html =~ "sso1.example.com"
+        assert html =~ "sso2.example.com"
+      end
+
+      test "delete domain", %{conn: conn, user: user} do
+        team = team_of(user)
+        integration = SSO.initiate_saml_integration(team)
+        {:ok, domain} = SSO.Domains.add(integration, "sso1.example.com")
+        {:ok, lv, _html} = live(conn, open_team(team.id, tab: :sso))
+
+        lv |> element("button#remove-domain-#{domain.identifier}") |> render_click()
+        refute render(lv) =~ "sso1.example.com"
       end
     end
   end

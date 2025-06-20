@@ -3,6 +3,10 @@ import { prePageviewTrack, postPageviewTrack, onPageviewIgnored } from './engage
 import { config, scriptEl, location, document } from './config'
 
 export function track(eventName, options) {
+  if (COMPILE_PLAUSIBLE_NPM && !config.isInitialized) {
+    throw new Error('plausible.track() can only be called after plausible.init()')
+  }
+
   var isPageview = eventName === 'pageview'
 
   if (isPageview) {
@@ -51,7 +55,7 @@ export function track(eventName, options) {
   payload.v = COMPILE_TRACKER_SCRIPT_VERSION
 
   if (COMPILE_MANUAL) {
-    var customURL = options && options.u
+    var customURL = options && (options.u || options.url)
 
     payload.u = customURL ? customURL : location.href
   } else {
@@ -60,7 +64,7 @@ export function track(eventName, options) {
 
   payload.d = config.domain
   payload.r = document.referrer || null
-  if (options && options.meta) {
+  if (COMPILE_PLAUSIBLE_LEGACY_VARIANT && options && options.meta) {
     payload.m = JSON.stringify(options.meta)
   }
   if (options && options.props) {
@@ -107,6 +111,14 @@ export function track(eventName, options) {
     payload.h = 1
   }
 
+  if ((COMPILE_PLAUSIBLE_WEB || COMPILE_PLAUSIBLE_NPM) && typeof config.transformRequest === 'function') {
+    payload = config.transformRequest(payload)
+
+    if (!payload) {
+      return onIgnoredEvent(eventName, options, 'transformRequest')
+    }
+  }
+
   if (isPageview) {
     postPageviewTrack(payload)
   }
@@ -116,7 +128,10 @@ export function track(eventName, options) {
 
 
 function onIgnoredEvent(eventName, options, reason) {
-  if (reason) console.warn('Ignoring Event: ' + reason);
+  if (reason && config.logging) {
+    console.warn('Ignoring Event: ' + reason);
+  }
+
   options && options.callback && options.callback()
 
   if (eventName === 'pageview') {

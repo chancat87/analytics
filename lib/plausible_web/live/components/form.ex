@@ -106,7 +106,7 @@ defmodule PlausibleWeb.Live.Components.Form do
         <input type="hidden" name={@name} value="false" disabled={@rest[:disabled]} />
         <input
           type="checkbox"
-          value={assigns[:value] || "true"}
+          value="true"
           checked={@checked}
           id={@id}
           name={@name}
@@ -151,8 +151,8 @@ defmodule PlausibleWeb.Live.Components.Form do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class="mt-2">
-      <.label for={@id}>{@label}</.label>
+    <div class={@mt? && "mt-2"}>
+      <.label class="mb-2" for={@id}>{@label}</.label>
       <textarea
         id={@id}
         rows="6"

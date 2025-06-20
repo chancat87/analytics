@@ -28,7 +28,6 @@ defmodule Plausible.Teams.Team do
     field :accept_traffic_until, :date
     field :allow_next_upgrade_override, :boolean, default: false
     field :locked, :boolean, default: false
-    field :locked_by_admin, :boolean, default: false
 
     field :setup_complete, :boolean, default: false
     field :setup_at, :naive_datetime
@@ -51,6 +50,10 @@ defmodule Plausible.Teams.Team do
     has_many :team_invitations, Plausible.Teams.Invitation
     has_one :subscription, Plausible.Billing.Subscription
     has_one :enterprise_plan, Plausible.Billing.EnterprisePlan
+
+    on_ee do
+      has_one :sso_integration, Plausible.Auth.SSO.Integration
+    end
 
     has_many :ownerships, Plausible.Teams.Membership,
       where: [role: :owner],

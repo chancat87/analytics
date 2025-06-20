@@ -3,6 +3,7 @@ defmodule Plausible.Auth.SSOTest do
   use Plausible
 
   on_ee do
+    use Oban.Testing, repo: Plausible.Repo
     use Plausible.Teams.Test
 
     alias Plausible.Auth
@@ -73,13 +74,40 @@ defmodule Plausible.Auth.SSOTest do
         assert {:ok, integration} =
                  SSO.update_integration(integration, %{
                    idp_signin_url: "https://example.com",
-                   idp_entity_id: "some-entity",
+                   idp_entity_id: "  some-entity  ",
                    idp_cert_pem: @cert_pem
                  })
 
         assert integration.config.idp_signin_url == "https://example.com"
         assert integration.config.idp_entity_id == "some-entity"
-        assert integration.config.idp_cert_pem == @cert_pem
+
+        assert X509.Certificate.from_pem(integration.config.idp_cert_pem) ==
+                 X509.Certificate.from_pem(@cert_pem)
+      end
+
+      test "updates integration with whitespace around PEM" do
+        malformed_pem =
+          @cert_pem
+          |> String.split("\n")
+          |> Enum.map_join("\n\n", &("   " <> &1 <> "   "))
+
+        team = new_site().team
+        integration = SSO.initiate_saml_integration(team)
+
+        assert {:ok, integration} =
+                 SSO.update_integration(integration, %{
+                   idp_signin_url: "https://example.com",
+                   idp_entity_id: "some-entity",
+                   idp_cert_pem: malformed_pem
+                 })
+
+        assert integration.config.idp_signin_url == "https://example.com"
+        assert integration.config.idp_entity_id == "some-entity"
+
+        assert integration.config.idp_cert_pem == String.trim(@cert_pem)
+
+        assert X509.Certificate.from_pem(integration.config.idp_cert_pem) ==
+                 X509.Certificate.from_pem(@cert_pem)
       end
 
       test "optionally accepts metadata" do
@@ -401,6 +429,18 @@ defmodule Plausible.Auth.SSOTest do
         assert team.policy.sso_default_role == :editor
         assert team.policy.sso_session_timeout_minutes == 360
       end
+
+      test "returns changeset on invalid input" do
+        team = new_site().team
+
+        assert {:error, changeset} =
+                 SSO.update_policy(team, sso_session_timeout_minutes: "1024000005")
+
+        assert %{sso_session_timeout_minutes: [:number]} =
+                 Ecto.Changeset.traverse_errors(changeset, fn {_msg, opts} ->
+                   opts[:validation]
+                 end)
+      end
     end
 
     describe "check_force_sso/2" do
@@ -706,6 +746,50 @@ defmodule Plausible.Auth.SSOTest do
         assert sso_user.type == :standard
         refute sso_user.sso_identity_id
         refute sso_user.sso_integration_id
+      end
+
+      test "cancels verification jobs for all domains when integration is removed" do
+        team = new_site().team
+
+        integration = SSO.initiate_saml_integration(team)
+        domain1 = "example-#{Enum.random(1..10_000)}.com"
+        domain2 = "test-#{Enum.random(1..10_000)}.com"
+
+        {:ok, _} = SSO.Domains.add(integration, domain1)
+        {:ok, _} = SSO.Domains.add(integration, domain2)
+
+        {:ok, _} = SSO.Domains.start_verification(domain1)
+        {:ok, _} = SSO.Domains.start_verification(domain2)
+
+        assert_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain1})
+        assert_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain2})
+
+        assert :ok = SSO.remove_integration(integration)
+
+        refute Repo.reload(integration)
+        refute_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain1})
+        refute_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain2})
+      end
+
+      test "cancels verification jobs when integration is force removed with SSO users" do
+        team = new_site().team
+
+        integration = SSO.initiate_saml_integration(team)
+        domain = "example-#{Enum.random(1..10_000)}.com"
+
+        {:ok, sso_domain} = SSO.Domains.add(integration, domain)
+        SSO.Domains.verify(sso_domain, skip_checks?: true)
+
+        identity = new_identity("Test User", "test@" <> domain)
+        {:ok, _, _, _} = SSO.provision_user(identity)
+
+        {:ok, _} = SSO.Domains.start_verification(domain)
+        assert_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain})
+
+        assert :ok = SSO.remove_integration(integration, force_deprovision?: true)
+
+        refute Repo.reload(integration)
+        refute_enqueued(worker: SSO.Domain.Verification.Worker, args: %{domain: domain})
       end
     end
 

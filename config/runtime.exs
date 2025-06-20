@@ -306,6 +306,29 @@ license_key = get_var_from_path_or_env(config_dir, "LICENSE_KEY", "")
 
 sso_enabled = get_bool_from_path_or_env(config_dir, "SSO_ENABLED", false)
 
+sso_saml_adapter =
+  case get_var_from_path_or_env(config_dir, "SSO_SAML_ADAPTER", "fake") do
+    "fake" -> PlausibleWeb.SSO.FakeSAMLAdapter
+    "real" -> PlausibleWeb.SSO.RealSAMLAdapter
+  end
+
+sso_verification_nameservers =
+  case get_var_from_path_or_env(config_dir, "SSO_VERIFICATION_NAMESERVERS") do
+    nil ->
+      []
+
+    some ->
+      some
+      |> String.split(",")
+      |> Enum.map(fn addr ->
+        uri = URI.parse("dns://#{addr}")
+        host = uri.host
+        port = uri.port || 53
+        {:ok, addr} = :inet.parse_address(to_charlist(host))
+        {addr, port}
+      end)
+  end
+
 config :plausible,
   environment: env,
   mailer_email: mailer_email,
@@ -316,7 +339,9 @@ config :plausible,
   license_key: license_key,
   data_dir: data_dir,
   session_transfer_dir: session_transfer_dir,
-  sso_enabled: sso_enabled
+  sso_enabled: sso_enabled,
+  sso_saml_adapter: sso_saml_adapter,
+  sso_verification_nameservers: sso_verification_nameservers
 
 config :plausible, :selfhost,
   enable_email_verification: enable_email_verification,
@@ -332,7 +357,8 @@ config :plausible, PlausibleWeb.Endpoint,
   http: [port: http_port, ip: listen_ip] ++ default_http_opts,
   secret_key_base: secret_key_base,
   websocket_url: websocket_url,
-  secure_cookie: secure_cookie
+  secure_cookie: secure_cookie,
+  base_url: base_url
 
 # maybe enable HTTPS in CE
 if config_env() in [:ce, :ce_dev, :ce_test] do
@@ -790,7 +816,8 @@ cloud_queues = [
   notify_annual_renewal: 1,
   lock_sites: 1,
   legacy_time_on_page_cutoff: 1,
-  purge_cdn_cache: 1
+  purge_cdn_cache: 1,
+  sso_domain_ownership_verification: 32
 ]
 
 queues = if(is_selfhost, do: base_queues, else: base_queues ++ cloud_queues)
@@ -840,41 +867,6 @@ config :ref_inspector,
 
 config :ua_inspector,
   init: {Plausible.Release, :configure_ua_inspector}
-
-if config_env() in [:dev, :staging, :prod, :test] do
-  config :kaffy,
-    otp_app: :plausible,
-    ecto_repo: Plausible.Repo,
-    router: PlausibleWeb.Router,
-    admin_title: "Plausible Admin",
-    extensions: [Plausible.CrmExtensions],
-    resources: [
-      auth: [
-        resources: [
-          user: [schema: Plausible.Auth.User, admin: Plausible.Auth.UserAdmin],
-          api_key: [schema: Plausible.Auth.ApiKey, admin: Plausible.Auth.ApiKeyAdmin]
-        ]
-      ],
-      teams: [
-        resources: [
-          team: [schema: Plausible.Teams.Team, admin: Plausible.Teams.TeamAdmin]
-        ]
-      ],
-      sites: [
-        resources: [
-          site: [schema: Plausible.Site, admin: Plausible.SiteAdmin]
-        ]
-      ],
-      billing: [
-        resources: [
-          enterprise_plan: [
-            schema: Plausible.Billing.EnterprisePlan,
-            admin: Plausible.Billing.EnterprisePlanAdmin
-          ]
-        ]
-      ]
-    ]
-end
 
 geo_opts =
   cond do
