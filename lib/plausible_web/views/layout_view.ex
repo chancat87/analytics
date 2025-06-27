@@ -4,6 +4,7 @@ defmodule PlausibleWeb.LayoutView do
 
   alias Plausible.Teams
   alias PlausibleWeb.Components.Billing.Notice
+  alias PlausibleWeb.Components.Layout
 
   def plausible_url do
     PlausibleWeb.Endpoint.url()
@@ -80,21 +81,6 @@ defmodule PlausibleWeb.LayoutView do
     |> Enum.reject(&is_nil/1)
   end
 
-  def flat_site_settings_options(conn) do
-    conn
-    |> site_settings_sidebar()
-    |> Enum.map(fn
-      %{value: value, key: key} when is_binary(value) ->
-        {key, value}
-
-      %{value: submenu_items, key: parent_key} when is_list(submenu_items) ->
-        Enum.map(submenu_items, fn submenu_item ->
-          {"#{parent_key}: #{submenu_item.key}", submenu_item.value}
-        end)
-    end)
-    |> List.flatten()
-  end
-
   def account_settings_sidebar(conn) do
     current_team = conn.assigns[:current_team]
     current_team_role = conn.assigns[:current_team_role]
@@ -113,7 +99,9 @@ defmodule PlausibleWeb.LayoutView do
           if(not Teams.setup?(current_team),
             do: %{key: "API Keys", value: "api-keys", icon: :key}
           ),
-          %{key: "Danger Zone", value: "danger-zone", icon: :exclamation_triangle}
+          if(Plausible.Users.type(conn.assigns.current_user) == :standard,
+            do: %{key: "Danger Zone", value: "danger-zone", icon: :exclamation_triangle}
+          )
         ]
         |> Enum.reject(&is_nil/1)
     }
@@ -132,6 +120,18 @@ defmodule PlausibleWeb.LayoutView do
           ),
           if(current_team_role in [:owner, :billing, :admin, :editor],
             do: %{key: "API Keys", value: "api-keys", icon: :key}
+          ),
+          if(
+            Plausible.sso_enabled?() and current_team_role == :owner and
+              Plausible.Billing.Feature.SSO.check_availability(current_team) == :ok,
+            do: %{
+              key: "Single Sign-On",
+              icon: :cloud,
+              value: [
+                %{key: "Configuration", value: "sso/general"},
+                %{key: "Sessions", value: "sso/sessions"}
+              ]
+            }
           ),
           if(current_team_role == :owner,
             do: %{key: "Danger Zone", value: "team/delete", icon: :exclamation_triangle}

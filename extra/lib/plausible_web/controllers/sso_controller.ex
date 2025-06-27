@@ -5,12 +5,27 @@ defmodule PlausibleWeb.SSOController do
 
   alias Plausible.Auth
   alias Plausible.Auth.SSO
-  alias Plausible.Repo
+  alias PlausibleWeb.LoginPreference
 
   alias PlausibleWeb.Router.Helpers, as: Routes
 
+  plug Plausible.Plugs.AuthorizeTeamAccess,
+       [:owner] when action in [:sso_settings]
+
+  plug Plausible.Plugs.AuthorizeTeamAccess,
+       [:owner, :admin] when action in [:team_sessions, :delete_session]
+
   def login_form(conn, params) do
-    render(conn, "login_form.html", error: params["error"])
+    login_preference = LoginPreference.get(conn)
+    error = Phoenix.Flash.get(conn.assigns.flash, :login_error)
+
+    case {login_preference, params["prefer"], error} do
+      {nil, nil, nil} ->
+        redirect(conn, to: Routes.auth_path(conn, :login_form, return_to: params["return_to"]))
+
+      _ ->
+        render(conn, "login_form.html", autosubmit: params["autosubmit"] != nil)
+    end
   end
 
   def login(conn, %{"email" => email} = params) do
@@ -28,61 +43,36 @@ defmodule PlausibleWeb.SSOController do
         )
 
       {:error, :not_found} ->
-        render(conn, "login_form.html", error: "Wrong email.")
+        conn
+        |> put_flash(:login_error, "Wrong email.")
+        |> redirect(to: Routes.sso_path(conn, :login_form))
     end
   end
 
-  def saml_signin(conn, %{
-        "integration_id" => integration_id,
-        "email" => email,
-        "return_to" => return_to
-      }) do
-    conn
-    |> put_layout(false)
-    |> render("saml_signin.html",
-      integration_id: integration_id,
-      email: email,
-      return_to: return_to,
-      nonce: conn.private[:sso_nonce]
-    )
+  def provision_notice(conn, _params) do
+    render(conn, "provision_notice.html")
   end
 
-  def saml_consume(conn, %{
-        "integration_id" => integration_id,
-        "email" => email,
-        "return_to" => return_to
-      }) do
-    case SSO.get_integration(integration_id) do
-      {:ok, integration} ->
-        session_timeout_minutes = integration.team.policy.sso_session_timeout_minutes
+  def provision_issue(conn, params) do
+    issue =
+      case params["issue"] do
+        "not_a_member" -> :not_a_member
+        "multiple_memberships" -> :multiple_memberships
+        "multiple_memberships_noforce" -> :multiple_memberships_noforce
+        "active_personal_team" -> :active_personal_team
+        "active_personal_team_noforce" -> :active_personal_team_noforce
+        _ -> :unknown
+      end
 
-        expires_at =
-          NaiveDateTime.add(NaiveDateTime.utc_now(:second), session_timeout_minutes, :minute)
+    render(conn, "provision_issue.html", issue: issue)
+  end
 
-        identity =
-          if user = Repo.get_by(Auth.User, email: email) do
-            %SSO.Identity{
-              id: user.sso_identity_id || Ecto.UUID.generate(),
-              name: user.name,
-              email: email,
-              expires_at: expires_at
-            }
-          else
-            %SSO.Identity{
-              id: Ecto.UUID.generate(),
-              name: name_from_email(email),
-              email: email,
-              expires_at: expires_at
-            }
-          end
+  def saml_signin(conn, params) do
+    saml_adapter().signin(conn, params)
+  end
 
-        PlausibleWeb.UserAuth.log_in_user(conn, identity, return_to)
-
-      {:error, :not_found} ->
-        redirect(conn,
-          to: Routes.sso_path(conn, :login_form, error: "Wrong email.", return_to: return_to)
-        )
-    end
+  def saml_consume(conn, params) do
+    saml_adapter().consume(conn, params)
   end
 
   def csp_report(conn, _params) do
@@ -91,12 +81,38 @@ defmodule PlausibleWeb.SSOController do
     conn |> send_resp(200, "OK")
   end
 
-  defp name_from_email(email) do
-    email
-    |> String.split("@", parts: 2)
-    |> List.first()
-    |> String.split(".")
-    |> Enum.take(2)
-    |> Enum.map_join(" ", &String.capitalize/1)
+  def sso_settings(conn, _params) do
+    if Plausible.Teams.setup?(conn.assigns.current_team) and Plausible.sso_enabled?() and
+         Plausible.Billing.Feature.SSO.check_availability(conn.assigns.current_team) == :ok do
+      render(conn, :sso_settings,
+        layout: {PlausibleWeb.LayoutView, :settings},
+        connect_live_socket: true
+      )
+    else
+      conn
+      |> redirect(to: Routes.site_path(conn, :index))
+    end
+  end
+
+  def team_sessions(conn, _params) do
+    sso_sessions = Auth.UserSessions.list_sso_for_team(conn.assigns.current_team)
+
+    render(conn, :team_sessions,
+      layout: {PlausibleWeb.LayoutView, :settings},
+      sso_sessions: sso_sessions
+    )
+  end
+
+  def delete_session(conn, %{"session_id" => session_id}) do
+    current_team = conn.assigns.current_team
+    Auth.UserSessions.revoke_sso_by_id(current_team, session_id)
+
+    conn
+    |> put_flash(:success, "Session logged out successfully")
+    |> redirect(to: Routes.sso_path(conn, :team_sessions))
+  end
+
+  defp saml_adapter() do
+    Application.fetch_env!(:plausible, :sso_saml_adapter)
   end
 end

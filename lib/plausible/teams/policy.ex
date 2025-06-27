@@ -13,6 +13,7 @@ defmodule Plausible.Teams.Policy do
   @update_fields [:sso_default_role, :sso_session_timeout_minutes]
 
   @default_timeout_minutes 6 * 60
+  @min_timeout_minutes 30
   @max_timeout_minutes 12 * 60
 
   @type t() :: %__MODULE__{}
@@ -41,14 +42,17 @@ defmodule Plausible.Teams.Policy do
     field :sso_session_timeout_minutes, :integer, default: @default_timeout_minutes
   end
 
+  @spec sso_member_roles() :: [sso_member_role()]
+  def sso_member_roles(), do: @sso_member_roles
+
   @spec update_changeset(t(), map()) :: Ecto.Changeset.t()
   def update_changeset(policy, params) do
     policy
     |> cast(params, @update_fields)
     |> validate_required(@update_fields)
     |> validate_number(:sso_session_timeout_minutes,
-      greater_than: 0,
-      less_than: @max_timeout_minutes
+      greater_than_or_equal_to: @min_timeout_minutes,
+      less_than_or_equal_to: @max_timeout_minutes
     )
   end
 

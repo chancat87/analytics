@@ -57,6 +57,12 @@ defmodule PlausibleWeb.Live.CustomerSupport do
             <p class="font-sans pl-2 mb-1">
               Like above, but only finds team(s) with subscription (in any status).
             </p>
+
+            <strong>team:</strong>input <strong>+sso</strong>
+            <br />
+            <p class="font-sans pl-2 mb-1">
+              Like above, but only finds team(s) with SSO integrations (in any status).
+            </p>
           </div>
         </div>
       </div>
@@ -101,9 +107,6 @@ defmodule PlausibleWeb.Live.CustomerSupport do
             <div class="flex justify-between text-xs">
               <.styled_link onclick="window.history.go(-1); return false;">
                 &larr; Previous
-              </.styled_link>
-              <.styled_link :if={@current} class="text-xs" href={kaffy_url(@current, @id)}>
-                open in Kaffy
               </.styled_link>
             </div>
             <.live_component
@@ -212,6 +215,13 @@ defmodule PlausibleWeb.Live.CustomerSupport do
         [limit: 90]
       end
 
+    opts =
+      if "sso" in mods do
+        Keyword.merge(opts, with_sso_only?: true)
+      else
+        opts
+      end
+
     {[Resource.Team], input, opts}
   end
 
@@ -238,21 +248,5 @@ defmodule PlausibleWeb.Live.CustomerSupport do
     |> assign(:filter_text, filter_text)
     |> assign(:uri, uri)
     |> push_patch(to: URI.to_string(uri), replace: true)
-  end
-
-  defp kaffy_url(nil, _id), do: ""
-
-  defp kaffy_url(current, id) do
-    r =
-      current.type()
-
-    kaffy_r =
-      case r do
-        "user" -> "auth"
-        "team" -> "teams"
-        "site" -> "sites"
-      end
-
-    "/crm/#{kaffy_r}/#{r}/#{id}"
   end
 end

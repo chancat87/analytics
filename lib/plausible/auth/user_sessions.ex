@@ -3,6 +3,8 @@ defmodule Plausible.Auth.UserSessions do
   Functions for interacting with user sessions.
   """
 
+  use Plausible
+
   import Ecto.Query
   alias Plausible.Auth
   alias Plausible.Repo
@@ -19,6 +21,58 @@ defmodule Plausible.Auth.UserSessions do
     )
   end
 
+  on_ee do
+    alias Plausible.Teams
+
+    @spec list_sso_for_team(Teams.Team.t(), NaiveDateTime.t()) :: [Auth.UserSession.t()]
+    def list_sso_for_team(team, now \\ NaiveDateTime.utc_now(:second)) do
+      user_ids =
+        Repo.all(
+          from t in Teams.Team,
+            inner_join: tm in assoc(t, :team_memberships),
+            inner_join: u in assoc(tm, :user),
+            where: t.id == ^team.id,
+            where: tm.role != :guest,
+            where: u.type == :sso,
+            select: u.id
+        )
+
+      Repo.all(
+        from us in Auth.UserSession,
+          inner_join: u in assoc(us, :user),
+          where: us.user_id in ^user_ids,
+          where: us.timeout_at >= ^now,
+          order_by: [desc: us.last_used_at, desc: us.id],
+          preload: [user: u]
+      )
+    end
+
+    @spec revoke_sso_by_id(Teams.Team.t(), pos_integer()) :: :ok
+    def revoke_sso_by_id(team, session_id) do
+      {_, tokens} =
+        Repo.delete_all(
+          from us in Auth.UserSession,
+            inner_join: u in assoc(us, :user),
+            inner_join: tm in assoc(u, :team_memberships),
+            where: u.type == :sso,
+            where: us.id == ^session_id,
+            where: tm.role != :guest,
+            where: tm.team_id == ^team.id,
+            select: us.token
+        )
+
+      case tokens do
+        [token] ->
+          disconnect_by_token(token)
+
+        _ ->
+          :pass
+      end
+
+      :ok
+    end
+  end
+
   @spec last_used_humanize(Auth.UserSession.t(), NaiveDateTime.t()) :: String.t()
   def last_used_humanize(user_session, now \\ NaiveDateTime.utc_now(:second)) do
     diff = NaiveDateTime.diff(now, user_session.last_used_at, :hour)
@@ -33,7 +87,10 @@ defmodule Plausible.Auth.UserSessions do
     end
   end
 
-  @spec get_by_token(String.t()) :: {:ok, Auth.UserSession.t()} | {:error, :not_found}
+  @spec get_by_token(String.t()) ::
+          {:ok, Auth.UserSession.t()}
+          | {:error, :not_found}
+          | {:error, :expired, Auth.UserSession.t()}
   def get_by_token(token) do
     now = NaiveDateTime.utc_now(:second)
 
@@ -50,14 +107,18 @@ defmodule Plausible.Auth.UserSessions do
         left_join: o in assoc(t, :owners),
         left_lateral_join: ts in subquery(last_team_subscription_query),
         on: true,
-        where: us.token == ^token and us.timeout_at > ^now,
+        where: us.token == ^token,
         order_by: t.id,
         preload: [user: {u, team_memberships: {tm, team: {t, subscription: ts, owners: o}}}]
       )
 
     case Repo.one(token_query) do
       %Auth.UserSession{} = user_session ->
-        {:ok, user_session}
+        if NaiveDateTime.compare(user_session.timeout_at, now) == :gt do
+          {:ok, user_session}
+        else
+          {:error, :expired, user_session}
+        end
 
       nil ->
         {:error, :not_found}
