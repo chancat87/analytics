@@ -59,8 +59,7 @@ defmodule Plausible.Teams do
     def on_trial?(team) do
       team = with_subscription(team)
 
-      not Plausible.Billing.Subscriptions.active?(team.subscription) &&
-        trial_days_left(team) >= 0
+      is_nil(team.subscription) and trial_days_left(team) >= 0
     end
   else
     def on_trial?(_), do: always(true)
@@ -69,40 +68,7 @@ defmodule Plausible.Teams do
   @spec locked?(Teams.Team.t() | nil) :: boolean()
   def locked?(nil), do: false
 
-  def locked?(%Teams.Team{locked: locked, locked_by_admin: locked_by_admin}),
-    do: locked or locked_by_admin
-
-  def admin_lock!(%Teams.Team{} = team) do
-    {:ok, team} =
-      Repo.transaction(fn ->
-        if team.grace_period do
-          Plausible.Billing.SiteLocker.set_lock_status_for(team, true)
-          Plausible.Teams.end_grace_period(team)
-        else
-          team
-        end
-        |> Ecto.Changeset.change(locked_by_admin: true)
-        |> Repo.update!()
-      end)
-
-    team
-  end
-
-  def admin_unlock!(%Teams.Team{} = team) do
-    {:ok, team} =
-      Repo.transaction(fn ->
-        if team.grace_period do
-          Plausible.Billing.SiteLocker.set_lock_status_for(team, false)
-          Plausible.Teams.remove_grace_period(team)
-        else
-          team
-        end
-        |> Ecto.Changeset.change(locked_by_admin: false)
-        |> Repo.update!()
-      end)
-
-    team
-  end
+  def locked?(%Teams.Team{locked: locked}), do: locked
 
   @spec trial_days_left(Teams.Team.t()) :: integer()
   def trial_days_left(nil) do
@@ -175,13 +141,12 @@ defmodule Plausible.Teams do
 
   If the user already has an owner membership in an existing team,
   that team is returned.
-
-  If the user has a non-guest membership other than owner, `:no_team` error
-  is returned.
   """
-  @spec get_or_create(Auth.User.t()) :: {:ok, Teams.Team.t()} | {:error, :multiple_teams}
+  @spec get_or_create(Auth.User.t()) ::
+          {:ok, Teams.Team.t()} | {:error, :multiple_teams | :permission_denied}
   def get_or_create(user) do
-    with {:error, :no_team} <- get_owned_team(user, only_not_setup?: true) do
+    with :ok <- check_user_type(user),
+         {:error, :no_team} <- get_owned_team(user, only_not_setup?: true) do
       case create_my_team(user) do
         {:ok, team} ->
           {:ok, team}
@@ -194,6 +159,14 @@ defmodule Plausible.Teams do
 
   @spec force_create_my_team(Auth.User.t()) :: Teams.Team.t()
   def force_create_my_team(user) do
+    # This is going to crash hard for SSO user. This shouldn't happen
+    # under normal circumstances except in case of a _very_ unlucky timing.
+    # Manual resolution is necessary anyway.
+    case check_user_type(user) do
+      :ok -> :pass
+      _ -> raise "SSO user tried to force create a personal team"
+    end
+
     {:ok, team} =
       Repo.transaction(fn ->
         clear_autocreated(user)
@@ -246,10 +219,10 @@ defmodule Plausible.Teams do
     end
   end
 
-  @spec get_by_owner(Auth.User.t()) ::
+  @spec get_by_owner(Auth.User.t(), Keyword.t()) ::
           {:ok, Teams.Team.t()} | {:error, :no_team | :multiple_teams}
-  def get_by_owner(user) do
-    get_owned_team(user)
+  def get_by_owner(user, opts \\ []) do
+    get_owned_team(user, opts)
   end
 
   @spec update_accept_traffic_until(Teams.Team.t()) :: Teams.Team.t()
@@ -375,6 +348,14 @@ defmodule Plausible.Teams do
 
       _teams ->
         {:error, :multiple_teams}
+    end
+  end
+
+  defp check_user_type(user) do
+    if Plausible.Users.type(user) == :sso do
+      {:error, :permission_denied}
+    else
+      :ok
     end
   end
 

@@ -27,11 +27,38 @@ defmodule PlausibleWeb.TrackerTest do
       assert PlausibleWeb.Tracker.plausible_main_config(tracker_script_configuration) == %{
                domain: site.domain,
                endpoint: "#{PlausibleWeb.Endpoint.url()}/api/event",
-               hashBasedRouting: true,
                outboundLinks: false,
                fileDownloads: false,
                formSubmissions: true
              }
+    end
+
+    test "can create config with params" do
+      site = new_site()
+
+      tracker_script_configuration =
+        Tracker.get_or_create_tracker_script_configuration!(site, %{
+          outbound_links: true,
+          form_submissions: true,
+          installation_type: :manual
+        })
+
+      assert tracker_script_configuration.outbound_links
+      assert tracker_script_configuration.form_submissions
+      refute tracker_script_configuration.file_downloads
+      assert tracker_script_configuration.installation_type == :manual
+    end
+
+    test "goals are created when config is created" do
+      site = new_site()
+
+      Tracker.get_or_create_tracker_script_configuration!(site, %{
+        outbound_links: true,
+        installation_type: :manual
+      })
+
+      assert Repo.get_by(Plausible.Goal, site_id: site.id, display_name: "Outbound Link: Click")
+      refute Repo.get_by(Plausible.Goal, site_id: site.id, display_name: "File Download")
     end
 
     test "can update config" do
@@ -57,7 +84,7 @@ defmodule PlausibleWeb.TrackerTest do
         site = new_site()
 
         tracker_script_configuration =
-          Tracker.get_or_create_tracker_script_configuration!(site.id)
+          Tracker.get_or_create_tracker_script_configuration!(site)
 
         Tracker.update_script_configuration(
           site,
@@ -75,7 +102,7 @@ defmodule PlausibleWeb.TrackerTest do
         site = new_site()
 
         tracker_script_configuration =
-          Tracker.get_or_create_tracker_script_configuration!(site.id)
+          Tracker.get_or_create_tracker_script_configuration!(site)
 
         Tracker.update_script_configuration(site, %{installation_type: :wordpress}, :installation)
 
@@ -93,7 +120,7 @@ defmodule PlausibleWeb.TrackerTest do
       script_tag = PlausibleWeb.Tracker.plausible_main_script_tag(tracker_script_configuration)
 
       assert script_tag =~
-               ~s(={endpoint:"#{PlausibleWeb.Endpoint.url()}/api/event",domain:"#{site.domain}",hashBasedRouting:!0,formSubmissions:!0})
+               ~s(={endpoint:"#{PlausibleWeb.Endpoint.url()}/api/event",domain:"#{site.domain}",formSubmissions:!0})
     end
 
     test "script tag escapes problematic characters as expected" do

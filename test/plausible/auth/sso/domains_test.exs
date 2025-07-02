@@ -6,12 +6,18 @@ defmodule Plausible.Auth.SSO.DomainsTest do
 
   on_ee do
     use Plausible.Teams.Test
+    use Plausible.Auth.SSO.Domain.Status
+    use Oban.Testing, repo: Plausible.Repo
 
+    alias Plausible.Auth
     alias Plausible.Auth.SSO
     alias Plausible.Teams
 
     setup do
-      owner = new_user(totp_enabled: true, totp_secret: "secret")
+      owner = new_user()
+      {:ok, owner, _} = Auth.TOTP.initiate(owner)
+      {:ok, owner, _} = Auth.TOTP.enable(owner, :skip_verify)
+
       team = new_site(owner: owner).team
 
       integration = SSO.initiate_saml_integration(team)
@@ -27,9 +33,9 @@ defmodule Plausible.Auth.SSO.DomainsTest do
 
         assert sso_domain.domain == domain
         assert is_binary(sso_domain.identifier)
-        refute sso_domain.validated_via
-        refute sso_domain.last_validated_at
-        assert sso_domain.status == :pending
+        refute sso_domain.verified_via
+        refute sso_domain.last_verified_at
+        assert sso_domain.status == Status.pending()
       end
 
       test "normalizes domain before adding", %{integration: integration} do
@@ -100,32 +106,70 @@ defmodule Plausible.Auth.SSO.DomainsTest do
     end
 
     describe "verify/2" do
-      test "marks domain as validated when skip_checks? option passed", %{
+      test "marks domain as verified when skip_checks? option passed", %{
         integration: integration
       } do
         domain = generate_domain()
         {:ok, sso_domain} = SSO.Domains.add(integration, domain)
 
-        valid_domain = SSO.Domains.verify(sso_domain, skip_checks?: true)
+        verified_domain = SSO.Domains.verify(sso_domain, skip_checks?: true)
 
-        assert valid_domain.id == sso_domain.id
-        assert valid_domain.validated_via == :dns_txt
-        assert valid_domain.status == :validated
-        assert valid_domain.last_validated_at
+        assert verified_domain.id == sso_domain.id
+        assert verified_domain.verified_via == :dns_txt
+        assert verified_domain.status == Status.verified()
+        assert verified_domain.last_verified_at
       end
 
-      test "does not mark domain as validated when no skip flag passed", %{
+      test "does mark domain as in progress, when no skip flag passed", %{
         integration: integration
       } do
         domain = generate_domain()
         {:ok, sso_domain} = SSO.Domains.add(integration, domain)
 
-        invalid_domain = SSO.Domains.verify(sso_domain, verification_opts: [methods: []])
+        unverified_domain = SSO.Domains.verify(sso_domain, verification_opts: [methods: []])
 
-        assert invalid_domain.id == sso_domain.id
-        refute invalid_domain.validated_via
-        assert invalid_domain.status == :pending
-        assert invalid_domain.last_validated_at
+        assert unverified_domain.id == sso_domain.id
+        refute unverified_domain.verified_via
+        assert unverified_domain.status == Status.in_progress()
+        assert unverified_domain.last_verified_at
+      end
+    end
+
+    describe "start_verification/1" do
+      test "no domain" do
+        assert {:error, :not_found} = SSO.Domains.start_verification("example.com")
+      end
+
+      test "sets domain status to in progress", %{integration: integration} do
+        domain = generate_domain()
+        {:ok, _} = SSO.Domains.add(integration, domain)
+        assert {:ok, sso_domain} = SSO.Domains.start_verification(domain)
+        assert sso_domain.status == Status.in_progress()
+      end
+
+      test "enqueues background work", %{integration: integration} do
+        domain = generate_domain()
+        {:ok, _} = SSO.Domains.add(integration, domain)
+        assert {:ok, _} = SSO.Domains.start_verification(domain)
+
+        assert_enqueued(
+          worker: Plausible.Auth.SSO.Domain.Verification.Worker,
+          args: %{domain: domain}
+        )
+      end
+    end
+
+    describe "cancel_verification/1" do
+      test "no domain" do
+        assert :ok = SSO.Domains.cancel_verification("example.com")
+      end
+
+      test "sets domain status to unverified", %{integration: integration} do
+        domain = generate_domain()
+        {:ok, _} = SSO.Domains.add(integration, domain)
+        assert {:ok, sso_domain} = SSO.Domains.start_verification(domain)
+        assert :ok = SSO.Domains.cancel_verification(domain)
+        assert Repo.reload!(sso_domain).status == Status.unverified()
       end
     end
 
@@ -164,7 +208,7 @@ defmodule Plausible.Auth.SSO.DomainsTest do
         assert found_sso_domain.id == sso_domain.id
       end
 
-      test "returns error if matching domain is not validated", %{integration: integration} do
+      test "returns error if matching domain is not verified", %{integration: integration} do
         domain = generate_domain()
         {:ok, _sso_domain} = SSO.Domains.add(integration, domain)
 
@@ -297,15 +341,6 @@ defmodule Plausible.Auth.SSO.DomainsTest do
 
     defp generate_domain() do
       "example-#{Enum.random(1..10_000)}.com"
-    end
-
-    defp new_identity(name, email, id \\ Ecto.UUID.generate()) do
-      %SSO.Identity{
-        id: id,
-        name: name,
-        email: email,
-        expires_at: NaiveDateTime.add(NaiveDateTime.utc_now(:second), 6, :hour)
-      }
     end
   end
 end

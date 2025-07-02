@@ -91,6 +91,7 @@ defmodule PlausibleWeb.StatsControllerTest do
 
       assert text_of_element(resp, "title") == "Plausible Analytics: Live Demo"
       assert resp =~ "Login"
+      assert resp =~ "Want these stats for your website?"
       assert resp =~ "Getting started"
     end
 
@@ -173,7 +174,7 @@ defmodule PlausibleWeb.StatsControllerTest do
       locked_site.team |> Ecto.Changeset.change(locked: true) |> Repo.update!()
       conn = get(conn, "/" <> locked_site.domain)
       resp = html_response(conn, 200)
-      assert resp =~ "Dashboard locked"
+      assert resp =~ "Dashboard Locked"
       assert resp =~ "Please subscribe to the appropriate tier with the link below"
     end
 
@@ -185,7 +186,7 @@ defmodule PlausibleWeb.StatsControllerTest do
 
       conn = get(conn, "/" <> locked_site.domain)
       resp = html_response(conn, 200)
-      assert resp =~ "Dashboard locked"
+      assert resp =~ "Dashboard Locked"
       assert resp =~ "Please subscribe to the appropriate tier with the link below"
     end
 
@@ -197,7 +198,7 @@ defmodule PlausibleWeb.StatsControllerTest do
 
       conn = get(conn, "/" <> locked_site.domain)
       resp = html_response(conn, 200)
-      assert resp =~ "Dashboard locked"
+      assert resp =~ "Dashboard Locked"
       refute resp =~ "Please subscribe to the appropriate tier with the link below"
       assert resp =~ "Owner of this site must upgrade their subscription plan"
     end
@@ -207,7 +208,7 @@ defmodule PlausibleWeb.StatsControllerTest do
       locked_site.team |> Ecto.Changeset.change(locked: true) |> Repo.update!()
       conn = get(build_conn(), "/" <> locked_site.domain)
       resp = html_response(conn, 200)
-      assert resp =~ "Dashboard locked"
+      assert resp =~ "Dashboard Locked"
       assert resp =~ "You can check back later or contact the site owner"
     end
 
@@ -219,7 +220,7 @@ defmodule PlausibleWeb.StatsControllerTest do
 
     test "does not show CRM link to the site", %{conn: conn, site: site} do
       conn = get(conn, conn |> get("/" <> site.domain) |> redirected_to())
-      refute html_response(conn, 200) =~ "/crm/sites/site/#{site.id}"
+      refute html_response(conn, 200) =~ "/cs/sites/site/#{site.id}"
     end
 
     test "all segments (personal or site) are stuffed into dataset, with their associated owner_id and owner_name",
@@ -314,7 +315,7 @@ defmodule PlausibleWeb.StatsControllerTest do
     test "shows CRM link to the site", %{conn: conn} do
       site = new_site()
       conn = get(conn, conn |> get("/" <> site.domain) |> redirected_to())
-      assert html_response(conn, 200) =~ "/crm/sites/site/#{site.id}"
+      assert html_response(conn, 200) =~ "/cs/sites/site/#{site.id}"
     end
   end
 
@@ -1331,8 +1332,40 @@ defmodule PlausibleWeb.StatsControllerTest do
 
       conn = get(conn, "/share/test-site.com/?auth=#{link.slug}")
 
-      assert html_response(conn, 200) =~ "Dashboard locked"
+      assert html_response(conn, 200) =~ "Dashboard Locked"
       refute String.contains?(html_response(conn, 200), "Back to my sites")
+    end
+
+    test "shows locked page if shared link is locked due to insufficient team subscription", %{
+      conn: conn
+    } do
+      site = new_site(domain: "test-site.com")
+      link = insert(:shared_link, site: site)
+
+      insert(:starter_subscription, team: site.team)
+
+      conn = get(conn, "/share/test-site.com/?auth=#{link.slug}")
+
+      assert html_response(conn, 200) =~ "Shared Link Unavailable"
+      refute String.contains?(html_response(conn, 200), "Back to my sites")
+    end
+
+    for special_name <- Plausible.Sites.shared_link_special_names() do
+      test "shows dashboard if team subscription insufficient but shared link name is '#{special_name}'",
+           %{conn: conn} do
+        site = new_site(domain: "test-site.com")
+        link = insert(:shared_link, site: site, name: unquote(special_name))
+
+        insert(:starter_subscription, team: site.team)
+
+        html =
+          conn
+          |> get("/share/test-site.com/?auth=#{link.slug}")
+          |> html_response(200)
+
+        assert element_exists?(html, @react_container)
+        refute html =~ "Shared Link Unavailable"
+      end
     end
 
     test "renders 404 not found when no auth parameter supplied", %{conn: conn} do
@@ -1449,5 +1482,102 @@ defmodule PlausibleWeb.StatsControllerTest do
       conn = get(conn, "/share/#{site2.domain}?auth=#{link2.slug}")
       assert html_response(conn, 200) =~ "Enter password"
     end
+  end
+
+  describe "dogfood tracking" do
+    @describetag :ee_only
+
+    test "does not set domain_to_replace on live demo dashboard", %{conn: conn} do
+      site = new_site(domain: "plausible.io", public: true)
+      populate_stats(site, [build(:pageview)])
+      conn = get(conn, "/#{site.domain}")
+      script_params = html_response(conn, 200) |> get_script_params()
+
+      assert %{
+               "location_override" => nil,
+               "domain_to_replace" => nil
+             } = script_params
+    end
+
+    test "sets domain_to_replace on any other dashboard", %{conn: conn} do
+      site = new_site(domain: "öö.ee", public: true)
+      populate_stats(site, [build(:pageview)])
+      conn = get(conn, "/#{site.domain}")
+      script_params = html_response(conn, 200) |> get_script_params()
+
+      assert %{
+               "location_override" => nil,
+               "domain_to_replace" => "%C3%B6%C3%B6.ee"
+             } = script_params
+    end
+
+    test "sets domain_to_replace on live demo shared link", %{conn: conn} do
+      site = new_site(domain: "plausible.io", public: true)
+      link = insert(:shared_link, site: site)
+
+      populate_stats(site, [build(:pageview)])
+
+      conn = get(conn, "/share/#{site.domain}/?auth=#{link.slug}")
+      script_params = html_response(conn, 200) |> get_script_params()
+
+      assert %{
+               "location_override" => nil,
+               "domain_to_replace" => "plausible.io"
+             } = script_params
+    end
+
+    test "sets location_override on a locked dashboard", %{conn: conn} do
+      locked_site = new_site(public: true)
+      locked_site.team |> Ecto.Changeset.change(locked: true) |> Repo.update!()
+
+      conn = get(conn, "/" <> locked_site.domain)
+      html = html_response(conn, 200)
+
+      script_params = html |> get_script_params()
+
+      assert html =~ "Dashboard Locked"
+      assert script_params["location_override"] == PlausibleWeb.Endpoint.url() <> "/:dashboard"
+    end
+
+    test "sets location_override on a locked shared link", %{conn: conn} do
+      locked_site = new_site()
+      link = insert(:shared_link, site: locked_site)
+
+      insert(:starter_subscription, team: locked_site.team)
+
+      conn = get(conn, "/share/#{locked_site.domain}/?auth=#{link.slug}")
+      html = html_response(conn, 200)
+
+      script_params = get_script_params(html)
+
+      assert html =~ "Shared Link Unavailable"
+
+      assert script_params["location_override"] ==
+               PlausibleWeb.Endpoint.url() <> "/share/:dashboard"
+    end
+
+    test "sets location_override on shared_link_password.html", %{conn: conn} do
+      site = new_site()
+
+      link =
+        insert(:shared_link, site: site, password_hash: Plausible.Auth.Password.hash("password"))
+
+      conn = get(conn, "/share/#{site.domain}?auth=#{link.slug}")
+      html = html_response(conn, 200)
+
+      script_params = get_script_params(html)
+
+      assert html =~ "Enter password"
+
+      assert script_params["location_override"] ==
+               PlausibleWeb.Endpoint.url() <> "/share/:dashboard"
+    end
+  end
+
+  defp get_script_params(html) do
+    html
+    |> find("#dogfood-script")
+    |> text_of_attr("data-script-params")
+    |> JSON.decode!()
   end
 end
