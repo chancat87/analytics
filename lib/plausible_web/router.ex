@@ -12,7 +12,23 @@ defmodule PlausibleWeb.Router do
     plug PlausibleWeb.Plugs.NoRobots
     on_ee(do: nil, else: plug(PlausibleWeb.FirstLaunchPlug, redirect_to: "/register"))
     plug PlausibleWeb.AuthPlug
+    on_ee(do: plug(Plausible.Plugs.HandleExpiredSession))
+    on_ee(do: plug(Plausible.Plugs.SSOTeamAccess))
     plug PlausibleWeb.Plugs.UserSessionTouch
+  end
+
+  on_ee do
+    pipeline :browser_sso_notice do
+      plug :accepts, ["html"]
+      plug :fetch_session
+      plug :fetch_live_flash
+      plug :put_secure_browser_headers
+      plug PlausibleWeb.Plugs.NoRobots
+      on_ee(do: nil, else: plug(PlausibleWeb.FirstLaunchPlug, redirect_to: "/register"))
+      plug PlausibleWeb.AuthPlug
+      on_ee(do: plug(Plausible.Plugs.HandleExpiredSession))
+      plug PlausibleWeb.Plugs.UserSessionTouch
+    end
   end
 
   pipeline :shared_link do
@@ -88,27 +104,6 @@ defmodule PlausibleWeb.Router do
   end
 
   on_ee do
-    use Kaffy.Routes,
-      scope: "/crm",
-      pipe_through: [
-        PlausibleWeb.Plugs.NoRobots,
-        PlausibleWeb.AuthPlug,
-        PlausibleWeb.SuperAdminOnlyPlug
-      ]
-  end
-
-  on_ee do
-    scope "/crm", PlausibleWeb do
-      pipe_through :flags
-      get "/teams/team/:team_id/usage", AdminController, :usage
-      get "/auth/user/:user_id/info", AdminController, :user_info
-      get "/billing/team/:team_id/current_plan", AdminController, :current_plan
-      get "/billing/search/team-by-id/:team_id", AdminController, :team_by_id
-      post "/billing/search/team", AdminController, :team_search
-    end
-  end
-
-  on_ee do
     scope alias: PlausibleWeb.Live,
           assigns: %{connect_live_socket: true, skip_plausible_tracking: true} do
       pipe_through [:browser, :csrf, :app_layout, :flags]
@@ -173,6 +168,9 @@ defmodule PlausibleWeb.Router do
 
       plug :fetch_session
       plug :fetch_live_flash
+    end
+
+    pipeline :sso_saml_auth do
       plug :protect_from_forgery, with: :clear_session
     end
 
@@ -186,7 +184,12 @@ defmodule PlausibleWeb.Router do
     scope "/sso/saml", PlausibleWeb do
       pipe_through [PlausibleWeb.Plugs.GateSSO, :sso_saml]
 
-      get "/signin/:integration_id", SSOController, :saml_signin
+      scope [] do
+        pipe_through :sso_saml_auth
+
+        get "/signin/:integration_id", SSOController, :saml_signin
+      end
+
       post "/consume/:integration_id", SSOController, :saml_consume
       post "/csp-report", SSOController, :csp_report
     end
@@ -466,6 +469,14 @@ defmodule PlausibleWeb.Router do
 
     get "/team/general", SettingsController, :team_general
     post "/team/general/name", SettingsController, :update_team_name
+    post "/team/leave", SettingsController, :leave_team
+
+    on_ee do
+      get "/sso/general", SSOController, :sso_settings
+      get "/sso/sessions", SSOController, :team_sessions
+      delete "/sso/sessions/:session_id", SSOController, :delete_session
+    end
+
     post "/team/invitations/:invitation_id/accept", InvitationController, :accept_invitation
     post "/team/invitations/:invitation_id/reject", InvitationController, :reject_invitation
     delete "/team/invitations/:invitation_id", InvitationController, :remove_team_invitation
@@ -473,13 +484,26 @@ defmodule PlausibleWeb.Router do
     delete "/team/delete", SettingsController, :delete_team
   end
 
+  on_ee do
+    scope "/", PlausibleWeb do
+      pipe_through [:browser_sso_notice, :csrf]
+
+      get "/sso/notice", SSOController, :provision_notice
+      get "/sso/issue", SSOController, :provision_issue
+      get "/logout", AuthController, :logout
+      get "/team/select", AuthController, :select_team
+    end
+  end
+
   scope "/", PlausibleWeb do
     pipe_through [:browser, :csrf]
 
-    get "/logout", AuthController, :logout
-    delete "/me", AuthController, :delete_me
+    on_ce do
+      get "/logout", AuthController, :logout
+      get "/team/select", AuthController, :select_team
+    end
 
-    get "/team/select", AuthController, :select_team
+    delete "/me", AuthController, :delete_me
 
     get "/auth/google/callback", AuthController, :google_auth_callback
 

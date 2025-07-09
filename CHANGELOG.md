@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Custom events can now be marked as non-interactive in events API and tracker script. Events marked as non-interactive are not counted towards bounce rate.
-
+- Ability to leave team via Team Settings > Leave Team
 
 ### Removed
 
@@ -74,6 +74,7 @@ All notable changes to this project will be documented in this file.
 - Always set site and team member limits to unlimited for Community Edition
 - Stats API now supports more `date_range` shorthand options like `30d`, `3mo`.
 - Stop showing Plausible footer when viewing stats, except when viewing a public dashboard or unembedded shared link dashboard.
+- Changed Plugins API Token creation flow to only display token once it's created.
 
 ### Fixed
 

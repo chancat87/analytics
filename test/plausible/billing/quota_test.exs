@@ -3,13 +3,12 @@ defmodule Plausible.Billing.QuotaTest do
   use Plausible.DataCase, async: true
   use Plausible
   alias Plausible.Billing.{Quota, Plans}
-  alias Plausible.Billing.Feature.{Goals, Props, SitesAPI, StatsAPI, SharedLinks}
+  alias Plausible.Billing.Feature.{Goals, Props, StatsAPI, SharedLinks}
 
   use Plausible.Teams.Test
 
   on_ee do
-    alias Plausible.Billing.Feature.Funnels
-    alias Plausible.Billing.Feature.RevenueGoals
+    alias Plausible.Billing.Feature.{Funnels, RevenueGoals, SitesAPI}
   end
 
   @legacy_plan_id "558746"
@@ -441,10 +440,10 @@ defmodule Plausible.Billing.QuotaTest do
         assert :unlimited == Plausible.Teams.Billing.team_member_limit(team)
       end
 
-      test "returns 5 when user in on trial" do
+      test "returns 10 when user in on trial" do
         team = new_user(trial_expiry_date: Date.shift(Date.utc_today(), day: 7)) |> team_of()
 
-        assert 3 == Plausible.Teams.Billing.team_member_limit(team)
+        assert 10 == Plausible.Teams.Billing.team_member_limit(team)
       end
 
       test "returns the enterprise plan limit" do
@@ -471,22 +470,22 @@ defmodule Plausible.Billing.QuotaTest do
     end
   end
 
-  describe "features_usage/2" do
-    test "returns an empty list for a user/site who does not use any feature" do
-      assert [] == Plausible.Teams.Billing.features_usage(team_of(new_user()))
-      assert [] == Plausible.Teams.Billing.features_usage(nil, [new_site().id])
-    end
+  on_ee do
+    describe "features_usage/2" do
+      test "returns an empty list for a user/site who does not use any feature" do
+        assert [] == Plausible.Teams.Billing.features_usage(team_of(new_user()))
+        assert [] == Plausible.Teams.Billing.features_usage(nil, [new_site().id])
+      end
 
-    test "returns [Props] when user/site uses custom props" do
-      user = new_user()
-      site = new_site(owner: user, allowed_event_props: ["dummy"])
-      team = team_of(user)
+      test "returns [Props] when user/site uses custom props" do
+        user = new_user()
+        site = new_site(owner: user, allowed_event_props: ["dummy"])
+        team = team_of(user)
 
-      assert [Props] == Plausible.Teams.Billing.features_usage(nil, [site.id])
-      assert [Props] == Plausible.Teams.Billing.features_usage(team)
-    end
+        assert [Props] == Plausible.Teams.Billing.features_usage(nil, [site.id])
+        assert [Props] == Plausible.Teams.Billing.features_usage(team)
+      end
 
-    on_ee do
       test "returns [Funnels] when user/site uses funnels" do
         user = new_user()
         site = new_site(owner: user)
@@ -509,39 +508,37 @@ defmodule Plausible.Billing.QuotaTest do
         assert [RevenueGoals] == Plausible.Teams.Billing.features_usage(nil, [site.id])
         assert [RevenueGoals] == Plausible.Teams.Billing.features_usage(team)
       end
-    end
 
-    test "returns [StatsAPI] when user has a stats api key" do
-      user = new_user(trial_expiry_date: Date.utc_today())
-      team = team_of(user)
-      insert(:api_key, user: user)
+      test "returns [StatsAPI] when user has a stats api key" do
+        user = new_user(trial_expiry_date: Date.utc_today())
+        team = team_of(user)
+        insert(:api_key, user: user)
 
-      assert [StatsAPI] == Plausible.Teams.Billing.features_usage(team)
-    end
+        assert [StatsAPI] == Plausible.Teams.Billing.features_usage(team)
+      end
 
-    test "returns [SitesAPI] when user has a Sites API enabled api key" do
-      user =
-        new_user()
-        |> subscribe_to_enterprise_plan(features: [StatsAPI, SitesAPI])
+      test "returns [SitesAPI] when user has a Sites API enabled api key" do
+        user =
+          new_user()
+          |> subscribe_to_enterprise_plan(features: [StatsAPI, SitesAPI])
 
-      team = team_of(user)
+        team = team_of(user)
 
-      insert(:api_key, user: user, scopes: ["sites:provision:*"])
+        insert(:api_key, user: user, scopes: ["sites:provision:*"])
 
-      assert [StatsAPI, SitesAPI] == Plausible.Teams.Billing.features_usage(team)
-    end
+        assert [StatsAPI, SitesAPI] == Plausible.Teams.Billing.features_usage(team)
+      end
 
-    test "returns feature usage based on a user and a custom list of site_ids" do
-      user = new_user(trial_expiry_date: Date.utc_today())
-      team = team_of(user)
-      insert(:api_key, user: user)
-      site_using_props = new_site(allowed_event_props: ["dummy"])
+      test "returns feature usage based on a user and a custom list of site_ids" do
+        user = new_user(trial_expiry_date: Date.utc_today())
+        team = team_of(user)
+        insert(:api_key, user: user)
+        site_using_props = new_site(allowed_event_props: ["dummy"])
 
-      site_ids = [site_using_props.id]
-      assert [Props, StatsAPI] == Plausible.Teams.Billing.features_usage(team, site_ids)
-    end
+        site_ids = [site_using_props.id]
+        assert [Props, StatsAPI] == Plausible.Teams.Billing.features_usage(team, site_ids)
+      end
 
-    on_ee do
       test "returns multiple features used by the user" do
         user = new_user()
         insert(:api_key, user: user)
@@ -563,10 +560,10 @@ defmodule Plausible.Billing.QuotaTest do
         assert [Props, Funnels, RevenueGoals, StatsAPI] ==
                  Plausible.Teams.Billing.features_usage(team)
       end
-    end
 
-    test "accounts only for sites the user owns" do
-      assert [] == Plausible.Teams.Billing.features_usage(nil)
+      test "accounts only for sites the user owns" do
+        assert [] == Plausible.Teams.Billing.features_usage(nil)
+      end
     end
   end
 
@@ -575,8 +572,7 @@ defmodule Plausible.Billing.QuotaTest do
       test "users with expired trials have no access to subscription features" do
         team = new_user(trial_expiry_date: ~D[2023-01-01]) |> team_of()
 
-        assert [Goals, Plausible.Billing.Feature.SharedLinks] ==
-                 Plausible.Teams.Billing.allowed_features_for(team)
+        assert [Goals] == Plausible.Teams.Billing.allowed_features_for(team)
       end
     end
 
@@ -605,7 +601,11 @@ defmodule Plausible.Billing.QuotaTest do
         subscribe_to_enterprise_plan(user,
           monthly_pageview_limit: 100_000,
           site_limit: 500,
-          features: [Plausible.Billing.Feature.StatsAPI, Plausible.Billing.Feature.Funnels]
+          features: [
+            Plausible.Billing.Feature.StatsAPI,
+            Plausible.Billing.Feature.Funnels,
+            Plausible.Billing.Feature.SharedLinks
+          ]
         )
 
         team = team_of(user)
@@ -622,7 +622,8 @@ defmodule Plausible.Billing.QuotaTest do
     test "returns all features when user in on trial" do
       team = new_user(trial_expiry_date: Date.shift(Date.utc_today(), day: 7)) |> team_of()
 
-      assert Plausible.Billing.Feature.list() -- [Plausible.Billing.Feature.SitesAPI] ==
+      assert Plausible.Billing.Feature.list() --
+               [Plausible.Billing.Feature.SitesAPI, Plausible.Billing.Feature.SSO] ==
                Plausible.Teams.Billing.allowed_features_for(team)
     end
 
@@ -641,7 +642,8 @@ defmodule Plausible.Billing.QuotaTest do
     test "returns all features for enterprise users who have not upgraded yet and are on trial" do
       team = new_user() |> subscribe_to_enterprise_plan(subscription?: false) |> team_of()
 
-      assert Plausible.Billing.Feature.list() -- [Plausible.Billing.Feature.SitesAPI] ==
+      assert Plausible.Billing.Feature.list() --
+               [Plausible.Billing.Feature.SitesAPI, Plausible.Billing.Feature.SSO] ==
                Plausible.Teams.Billing.allowed_features_for(team)
     end
 
@@ -660,10 +662,7 @@ defmodule Plausible.Billing.QuotaTest do
 
       team = team_of(user)
 
-      assert [
-               Plausible.Billing.Feature.StatsAPI,
-               Plausible.Billing.Feature.SharedLinks
-             ] ==
+      assert [Plausible.Billing.Feature.StatsAPI] ==
                Plausible.Teams.Billing.allowed_features_for(team)
     end
 
@@ -678,8 +677,7 @@ defmodule Plausible.Billing.QuotaTest do
 
       assert [
                Plausible.Billing.Feature.StatsAPI,
-               Plausible.Billing.Feature.SitesAPI,
-               Plausible.Billing.Feature.SharedLinks
+               Plausible.Billing.Feature.SitesAPI
              ] ==
                Plausible.Teams.Billing.allowed_features_for(team)
     end
@@ -1011,6 +1009,17 @@ defmodule Plausible.Billing.QuotaTest do
       assert suggested_tier == :starter
     end
 
+    test "returns :growth if usage within starter limits but starter plan not available",
+         %{team: team} do
+      suggested_tier =
+        team
+        |> Plausible.Teams.Billing.quota_usage(with_features: true)
+        |> Map.put(:sites, 1)
+        |> Quota.suggest_tier(nil, @highest_growth_plan, @highest_business_plan, nil)
+
+      assert suggested_tier == :growth
+    end
+
     test "returns :growth if usage within growth limits",
          %{team: team} do
       suggested_tier =
@@ -1057,6 +1066,33 @@ defmodule Plausible.Billing.QuotaTest do
         )
 
       assert suggested_tier == :business
+    end
+  end
+
+  describe "feature usage and ensuring access" do
+    @describetag :ee_only
+    setup [:create_user, :create_site]
+
+    test "subscribing to Starter plan when using shared links", %{user: user, site: site} do
+      insert(:shared_link, site: site)
+
+      usage = team_of(user) |> Plausible.Teams.Billing.quota_usage(with_features: true)
+      plan = Plausible.Billing.Plans.find(@v5_10m_starter_plan_id)
+
+      assert {:error, {:unavailable_features, [SharedLinks]}} =
+               Quota.ensure_feature_access(usage, plan)
+    end
+
+    for special_name <- Plausible.Sites.shared_link_special_names() do
+      test "having a shared link with the name '#{special_name}' does not count as using shared links",
+           %{user: user, site: site} do
+        insert(:shared_link, site: site, name: unquote(special_name))
+
+        usage = team_of(user) |> Plausible.Teams.Billing.quota_usage(with_features: true)
+        plan = Plausible.Billing.Plans.find(@v5_10m_starter_plan_id)
+
+        assert :ok = Quota.ensure_feature_access(usage, plan)
+      end
     end
   end
 end

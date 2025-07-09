@@ -2,10 +2,11 @@
 import { config, scriptEl, location, document } from './config'
 import { track } from './track'
 
+export var DEFAULT_FILE_TYPES = ['pdf', 'xlsx', 'docx', 'txt', 'rtf', 'csv', 'exe', 'key', 'pps', 'ppt', 'pptx', '7z', 'pkg', 'rar', 'gz', 'zip', 'avi', 'mov', 'mp4', 'mpeg', 'wmv', 'midi', 'mp3', 'wav', 'wma', 'dmg']
+
 var MIDDLE_MOUSE_BUTTON = 1
 var PARENTS_TO_SEARCH_LIMIT = 3
-var defaultFileTypes = ['pdf', 'xlsx', 'docx', 'txt', 'rtf', 'csv', 'exe', 'key', 'pps', 'ppt', 'pptx', '7z', 'pkg', 'rar', 'gz', 'zip', 'avi', 'mov', 'mp4', 'mpeg', 'wmv', 'midi', 'mp3', 'wav', 'wma', 'dmg']
-var fileTypesToTrack = defaultFileTypes
+var fileTypesToTrack = DEFAULT_FILE_TYPES
 
 function getLinkEl(link) {
   while (link && (typeof link.tagName === 'undefined' || !isLink(link) || !link.href)) {
@@ -55,6 +56,9 @@ function handleLinkClickEvent(event) {
 }
 
 function sendLinkClickEvent(event, link, eventAttrs) {
+  // In some legacy variants, this block delays opening the link up to 5 seconds,
+  // or until analytics request finishes, otherwise navigation prevents the analytics event from being sent.
+  if (COMPILE_COMPAT) {
   var followedLink = false
 
   function followLink() {
@@ -78,6 +82,13 @@ function sendLinkClickEvent(event, link, eventAttrs) {
       attrs.revenue = eventAttrs.revenue
     }
     track(eventAttrs.name, attrs)
+  }
+  } else {
+  var attrs = { props: eventAttrs.props }
+  if (COMPILE_REVENUE) {
+    attrs.revenue = eventAttrs.revenue
+  }
+  track(eventAttrs.name, attrs)
   }
 }
 
@@ -156,8 +167,8 @@ export function init() {
 
   if (COMPILE_FILE_DOWNLOADS && (!COMPILE_CONFIG || config.fileDownloads)) {
     if (COMPILE_CONFIG) {
-      if (Array.isArray(config.fileDownloads)) {
-        fileTypesToTrack = config.fileDownloads
+      if (typeof config.fileDownloads === 'object' && Array.isArray(config.fileDownloads.fileExtensions)) {
+        fileTypesToTrack = config.fileDownloads.fileExtensions
       }
     } else {
       var fileTypesAttr = scriptEl.getAttribute('file-types')
@@ -167,7 +178,7 @@ export function init() {
         fileTypesToTrack = fileTypesAttr.split(",")
       }
       if (addFileTypesAttr) {
-        fileTypesToTrack = addFileTypesAttr.split(",").concat(defaultFileTypes)
+        fileTypesToTrack = addFileTypesAttr.split(",").concat(DEFAULT_FILE_TYPES)
       }
     }
 
@@ -176,7 +187,11 @@ export function init() {
   if (COMPILE_CONFIG && config.formSubmissions) {
     function trackFormSubmission(e) {
       if (e.target.hasAttribute('novalidate') || e.target.checkValidity()) {
-        track('Form Submission', { props: { path: location.pathname } });
+        if (COMPILE_TAGGED_EVENTS && isElementOrParentTagged(e.target, 0)) {
+          // If the form is tagged, we don't track it as a generic form submission.
+          return
+        }
+        track('Form: Submission', { props: { path: location.pathname } });
       }
     }
 
@@ -189,6 +204,9 @@ export function init() {
       var eventAttrs = getTaggedEventAttributes(form)
       if (!eventAttrs.name) { return }
 
+      // In some legacy variants, this block delays submitting the form for up to 5 seconds,
+      // or until analytics request finishes, otherwise form-related navigation can prevent the analytics event from being sent.
+      if (COMPILE_COMPAT) {
       event.preventDefault()
       var formSubmitted = false
 
@@ -206,6 +224,13 @@ export function init() {
         attrs.revenue = eventAttrs.revenue
       }
       track(eventAttrs.name, attrs)
+      } else {
+      var attrs = { props: eventAttrs.props }
+      if (COMPILE_REVENUE) {
+        attrs.revenue = eventAttrs.revenue
+      }
+      track(eventAttrs.name, attrs)
+      }
     }
 
     function isForm(element) {

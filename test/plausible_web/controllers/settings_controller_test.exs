@@ -1,6 +1,7 @@
 defmodule PlausibleWeb.SettingsControllerTest do
   use PlausibleWeb.ConnCase, async: true
   use Bamboo.Test
+  use Plausible
   use Plausible.Repo
   use Plausible.Teams.Test
 
@@ -205,8 +206,7 @@ defmodule PlausibleWeb.SettingsControllerTest do
         |> html_response(200)
         |> text_of_element("#global-subscription-cancelled-notice")
 
-      assert notice_text =~ "Subscription cancelled"
-      assert notice_text =~ "Upgrade your subscription to get access to your stats again"
+      refute notice_text =~ Plausible.Billing.subscription_cancelled_notice_title()
     end
 
     @tag :ee_only
@@ -673,6 +673,23 @@ defmodule PlausibleWeb.SettingsControllerTest do
     end
   end
 
+  on_ee do
+    describe "POST /preferences/name - SSO user" do
+      setup [:create_user, :create_site, :create_team, :setup_sso, :provision_sso_user, :log_in]
+
+      test "refuses to update for SSO user", %{conn: conn, user: user} do
+        conn =
+          post(conn, Routes.settings_path(conn, :update_name), %{
+            "user" => %{"name" => "New name"}
+          })
+
+        assert redirected_to(conn, 302) == Routes.site_path(conn, :index)
+
+        assert Repo.reload!(user).name == user.name
+      end
+    end
+  end
+
   describe "POST /security/password" do
     setup [:create_user, :log_in]
 
@@ -844,6 +861,37 @@ defmodule PlausibleWeb.SettingsControllerTest do
     end
   end
 
+  on_ee do
+    describe "POST /security/password - SSO user" do
+      setup [:create_user, :create_site, :create_team, :setup_sso, :provision_sso_user, :log_in]
+
+      test "refuses to update for SSO user", %{conn: conn, user: user} do
+        password = "very-long-very-secret-123"
+        new_password = "super-long-super-secret-999"
+
+        original =
+          user
+          |> Auth.User.set_password(password)
+          |> Repo.update!()
+
+        conn =
+          post(conn, Routes.settings_path(conn, :update_password), %{
+            "user" => %{
+              "password" => new_password,
+              "old_password" => password,
+              "password_confirmation" => new_password
+            }
+          })
+
+        assert redirected_to(conn, 302) == Routes.site_path(conn, :index)
+
+        current_hash = Repo.reload!(user).password_hash
+        assert current_hash == original.password_hash
+        assert Plausible.Auth.Password.match?(password, current_hash)
+      end
+    end
+  end
+
   describe "POST /security/email" do
     setup [:create_user, :log_in]
 
@@ -946,6 +994,34 @@ defmodule PlausibleWeb.SettingsControllerTest do
         })
 
       assert html_response(conn, 200) =~ "can&#39;t be the same"
+    end
+  end
+
+  on_ee do
+    describe "POST /security/email - SSO user" do
+      setup [:create_user, :create_site, :create_team, :setup_sso, :provision_sso_user, :log_in]
+
+      test "refuses to update for SSO user", %{conn: conn, user: user} do
+        password = "very-long-very-secret-123"
+
+        user
+        |> Auth.User.set_password(password)
+        |> Repo.update!()
+
+        assert user.email_verified
+
+        conn =
+          post(conn, Routes.settings_path(conn, :update_email), %{
+            "user" => %{"email" => "new" <> user.email, "password" => password}
+          })
+
+        assert redirected_to(conn, 302) == Routes.site_path(conn, :index)
+
+        updated_user = Repo.reload!(user)
+
+        assert updated_user.email == user.email
+        assert updated_user.email_verified
+      end
     end
   end
 
@@ -1220,7 +1296,7 @@ defmodule PlausibleWeb.SettingsControllerTest do
       assert html = html_response(conn, 200)
 
       refute html =~ "Your account cannot be deleted because you have an active subscription"
-      assert html =~ "Delete my account"
+      assert html =~ "Delete My Account"
     end
 
     test "with active subscription", %{conn: conn, user: user} do
@@ -1230,7 +1306,7 @@ defmodule PlausibleWeb.SettingsControllerTest do
       assert html = html_response(conn, 200)
 
       assert html =~ "Your account cannot be deleted because you have an active subscription"
-      refute html =~ "Delete my account"
+      refute html =~ "Delete My Account"
     end
 
     test "with a setup team", %{conn: conn, user: user} do
@@ -1246,7 +1322,46 @@ defmodule PlausibleWeb.SettingsControllerTest do
       assert html = html_response(conn, 200)
 
       assert html =~ "You are the sole owner of one or more teams"
-      refute html =~ "Delete my account"
+      refute html =~ "Delete My Account"
+    end
+  end
+
+  on_ee do
+    describe "Account Settings - SSO user" do
+      setup [:create_user, :create_site, :create_team, :setup_sso, :provision_sso_user, :log_in]
+
+      test "does not allow to update name in preferences", %{conn: conn} do
+        conn = get(conn, Routes.settings_path(conn, :preferences))
+        assert html = html_response(conn, 200)
+        refute html =~ "Change Name"
+      end
+
+      test "does not allow to update email in security settings", %{conn: conn} do
+        conn = get(conn, Routes.settings_path(conn, :security))
+        assert html = html_response(conn, 200)
+        refute html =~ "Change Email"
+      end
+
+      test "does not allow to change password in security settings", %{conn: conn} do
+        conn = get(conn, Routes.settings_path(conn, :security))
+        assert html = html_response(conn, 200)
+        refute html =~ "Change Password"
+      end
+
+      test "does not allow to disable 2FA in security settings", %{conn: conn, user: user} do
+        {:ok, user, _} = Auth.TOTP.initiate(user)
+        {:ok, _, _} = Auth.TOTP.enable(user, :skip_verify)
+
+        conn = get(conn, Routes.settings_path(conn, :security))
+        assert html = html_response(conn, 200)
+        assert text_of_element(html, "button[disabled]") =~ "Disable 2FA"
+      end
+
+      test "does not show account danger zone", %{conn: conn} do
+        conn = get(conn, Routes.settings_path(conn, :preferences))
+        assert html = html_response(conn, 200)
+        refute html =~ "/settings/danger-zone"
+      end
     end
   end
 
@@ -1313,6 +1428,29 @@ defmodule PlausibleWeb.SettingsControllerTest do
         })
 
       assert text(html_response(conn, 200)) =~ "can't be blank"
+    end
+
+    test "POST /settings/team/leave", %{conn: conn, user: user} do
+      {:ok, team} = Plausible.Teams.get_or_create(user)
+      team = Plausible.Teams.complete_setup(team)
+      conn = set_current_team(conn, team)
+      add_member(team, role: :owner)
+
+      conn = post(conn, Routes.settings_path(conn, :leave_team))
+
+      assert redirected_to(conn, 302) == Routes.site_path(conn, :index, __team: "none")
+      assert Phoenix.Flash.get(conn.assigns.flash, :success) =~ "You have left"
+    end
+
+    test "POST /settings/team/leave - only owner", %{conn: conn, user: user} do
+      {:ok, team} = Plausible.Teams.get_or_create(user)
+      team = Plausible.Teams.complete_setup(team)
+      conn = set_current_team(conn, team)
+
+      conn = post(conn, Routes.settings_path(conn, :leave_team))
+
+      assert redirected_to(conn, 302) == Routes.settings_path(conn, :team_general)
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "You can't leave"
     end
 
     test "GET /settings/team/delete - without active subscription", %{conn: conn, user: user} do

@@ -70,6 +70,8 @@ defmodule Plausible.Teams.Invitations.InviteToSiteTest do
     test "returns error when owner is over their team member limit" do
       [owner, inviter, invitee] = for _ <- 1..3, do: new_user()
 
+      subscribe_to_growth_plan(owner)
+
       site = new_site(owner: owner)
       inviter = add_member(site.team, user: inviter, role: :admin)
       for _ <- 1..4, do: add_guest(site, role: :viewer)
@@ -81,6 +83,7 @@ defmodule Plausible.Teams.Invitations.InviteToSiteTest do
     @tag :ee_only
     test "allows inviting users who were already invited to other sites, within the limit" do
       owner = new_user()
+      subscribe_to_growth_plan(owner)
       site = new_site(owner: owner)
 
       invite = fn site, email ->
@@ -100,6 +103,8 @@ defmodule Plausible.Teams.Invitations.InviteToSiteTest do
     @tag :ee_only
     test "allows inviting users who are already members of other sites, within the limit" do
       [u1, u2, u3, u4] = for _ <- 1..4, do: new_user()
+      subscribe_to_growth_plan(u1)
+
       site = new_site(owner: u1)
       add_guest(site, user: u2, role: :viewer)
       add_guest(site, user: u3, role: :viewer)
@@ -196,69 +201,6 @@ defmodule Plausible.Teams.Invitations.InviteToSiteTest do
 
       assert {:ok, %Plausible.Teams.GuestInvitation{}} =
                InviteToSite.invite(site, inviter, "vini@plausible.test", :editor)
-    end
-  end
-
-  describe "bulk_invite/5" do
-    test "initiates ownership transfer for multiple sites in one action" do
-      admin_user = new_user()
-      new_owner = new_user()
-
-      site1 = new_site(owner: admin_user)
-      site2 = new_site(owner: admin_user)
-
-      assert {:ok, _} =
-               InviteToSite.bulk_invite(
-                 [site1, site2],
-                 admin_user,
-                 new_owner.email,
-                 :owner
-               )
-
-      assert_email_delivered_with(
-        to: [nil: new_owner.email],
-        subject: @subject_prefix <> "Request to transfer ownership of #{site1.domain}"
-      )
-
-      assert_site_transfer(site1, new_owner)
-
-      assert_email_delivered_with(
-        to: [nil: new_owner.email],
-        subject: @subject_prefix <> "Request to transfer ownership of #{site2.domain}"
-      )
-
-      assert_site_transfer(site2, new_owner)
-    end
-
-    test "initiates ownership transfer for multiple sites in one action skipping permission checks" do
-      superadmin_user = new_user()
-      new_owner = new_user()
-
-      site1 = new_site()
-      site2 = new_site()
-
-      assert {:ok, _} =
-               InviteToSite.bulk_invite(
-                 [site1, site2],
-                 superadmin_user,
-                 new_owner.email,
-                 :owner,
-                 check_permissions: false
-               )
-
-      assert_email_delivered_with(
-        to: [nil: new_owner.email],
-        subject: @subject_prefix <> "Request to transfer ownership of #{site1.domain}"
-      )
-
-      assert_site_transfer(site1, new_owner)
-
-      assert_email_delivered_with(
-        to: [nil: new_owner.email],
-        subject: @subject_prefix <> "Request to transfer ownership of #{site2.domain}"
-      )
-
-      assert_site_transfer(site2, new_owner)
     end
   end
 end
