@@ -13,11 +13,11 @@ Plasusible.Test.Support.DNSServer.html
 Plausible.AssertMatches.html
 Plausible.AsyncInsertRepo.html
 Plausible.Auth.ApiKey.html
-Plausible.Auth.ApiKeyAdmin.html
 Plausible.Auth.EmailActivationCode.html
 Plausible.Auth.EmailVerification.html
 Plausible.Auth.Password.html
-Plausible.Auth.SSO.Domain.Validation.html
+Plausible.Auth.SSO.Domain.Verification.Worker.html
+Plausible.Auth.SSO.Domain.Verification.html
 Plausible.Auth.SSO.Domain.html
 Plausible.Auth.SSO.Domains.html
 Plausible.Auth.SSO.Identity.html
@@ -30,17 +30,14 @@ Plausible.Auth.TOTP.Vault.html
 Plausible.Auth.TOTP.html
 Plausible.Auth.Token.html
 Plausible.Auth.User.html
-Plausible.Auth.UserAdmin.html
 Plausible.Auth.UserSession.html
 Plausible.Auth.UserSessions.html
 Plausible.Auth.html
 Plausible.Billing.DevPaddleApiMock.html
 Plausible.Billing.DevSubscriptions.html
 Plausible.Billing.Ecto.Feature.html
-Plausible.Billing.Ecto.FeatureList.html
 Plausible.Billing.Ecto.Limit.html
 Plausible.Billing.EnterprisePlan.html
-Plausible.Billing.EnterprisePlanAdmin.html
 Plausible.Billing.Feature.Teams.html
 Plausible.Billing.Feature.html
 Plausible.Billing.PaddleApi.html
@@ -76,7 +73,6 @@ Plausible.ClickhouseRepo.html
 Plausible.ClickhouseSessionV2.BoolUInt8.html
 Plausible.ClickhouseSessionV2.html
 Plausible.ConfigHelpers.html
-Plausible.CrmExtensions.html
 Plausible.CustomerSupport.EnterprisePlan.html
 Plausible.CustomerSupport.Resource.html
 Plausible.DataCase.html
@@ -108,6 +104,7 @@ Plausible.Funnels.html
 Plausible.Geo.html
 Plausible.Goal.Revenue.html
 Plausible.Goal.html
+Plausible.Goals.SystemGoals.html
 Plausible.Goals.html
 Plausible.Google.API.Mock.html
 Plausible.Google.API.html
@@ -155,6 +152,9 @@ Plausible.Plugins.API.SharedLinks.html
 Plausible.Plugins.API.Token.html
 Plausible.Plugins.API.Tokens.html
 Plausible.Plugs.AuthorizeTeamAccess.html
+Plausible.Plugs.HandleExpiredSession.html
+Plausible.Plugs.RestrictUserType.html
+Plausible.Plugs.SSOTeamAccess.html
 Plausible.PromEx.Buckets.html
 Plausible.PromEx.Plugins.PlausibleMetrics.html
 Plausible.PromEx.StripedPeep.html
@@ -190,7 +190,6 @@ Plausible.Site.Domain.html
 Plausible.Site.GateKeeper.html
 Plausible.Site.GoogleAuth.html
 Plausible.Site.ImportedData.html
-Plausible.Site.InstallationMeta.html
 Plausible.Site.MonthlyReport.html
 Plausible.Site.Removal.html
 Plausible.Site.SharedLink.html
@@ -199,7 +198,6 @@ Plausible.Site.TrafficChangeNotification.html
 Plausible.Site.UserPreference.html
 Plausible.Site.WeeklyReport.html
 Plausible.Site.html
-Plausible.SiteAdmin.html
 Plausible.Sites.html
 Plausible.Stats.Aggregate.html
 Plausible.Stats.Base.html
@@ -256,13 +254,13 @@ Plausible.Teams.Invitations.RemoveFromTeam.html
 Plausible.Teams.Management.Layout.Entry.html
 Plausible.Teams.Management.Layout.html
 Plausible.Teams.Membership.html
+Plausible.Teams.Memberships.Leave.html
 Plausible.Teams.Memberships.Remove.html
 Plausible.Teams.Memberships.UpdateRole.html
 Plausible.Teams.Policy.html
 Plausible.Teams.SiteTransfer.html
 Plausible.Teams.Sites.Transfer.html
 Plausible.Teams.Team.html
-Plausible.Teams.TeamAdmin.html
 Plausible.Teams.Test.html
 Plausible.Teams.Users.html
 Plausible.Teams.html
@@ -308,7 +306,6 @@ Plausible.Workers.SendTrialNotifications.html
 Plausible.Workers.SetLegacyTimeOnPageCutoff.html
 Plausible.Workers.TrafficChangeNotifier.html
 Plausible.html
-PlausibleWeb.AdminController.html
 PlausibleWeb.Api.ExternalController.html
 PlausibleWeb.Api.ExternalSitesController.html
 PlausibleWeb.Api.ExternalStatsController.html
@@ -389,6 +386,7 @@ PlausibleWeb.Live.PropsSettings.List.html
 PlausibleWeb.Live.PropsSettings.html
 PlausibleWeb.Live.RegisterForm.html
 PlausibleWeb.Live.ResetPasswordForm.html
+PlausibleWeb.Live.SSOManagement.html
 PlausibleWeb.Live.SentryContext.html
 PlausibleWeb.Live.Shields.Countries.html
 PlausibleWeb.Live.Shields.CountryRules.html
@@ -402,6 +400,7 @@ PlausibleWeb.Live.Sites.html
 PlausibleWeb.Live.TeamManagement.html
 PlausibleWeb.Live.TeamSetup.html
 PlausibleWeb.Live.Verification.html
+PlausibleWeb.LoginPreference.html
 PlausibleWeb.MJML.StatsReport.html
 PlausibleWeb.PageController.html
 PlausibleWeb.PageView.html
@@ -466,6 +465,8 @@ PlausibleWeb.RemoteIP.html
 PlausibleWeb.RequireAccountPlug.html
 PlausibleWeb.RequireLoggedOutPlug.html
 PlausibleWeb.Router.html
+PlausibleWeb.SSO.FakeSAMLAdapter.html
+PlausibleWeb.SSO.RealSAMLAdapter.html
 PlausibleWeb.SSOController.html
 PlausibleWeb.SSOView.html
 PlausibleWeb.SettingsController.html
@@ -480,6 +481,7 @@ PlausibleWeb.Team.Notice.html
 PlausibleWeb.TestController.html
 PlausibleWeb.Tracker.html
 PlausibleWeb.TrackerPlug.html
+PlausibleWeb.TrackerScriptCache.html
 PlausibleWeb.TwoFactor.Session.html
 PlausibleWeb.UnsubscribeController.html
 PlausibleWeb.UnsubscribeView.html
@@ -506,8 +508,8 @@ dist/lato-latin-ext-300-normal-VPGGJKJL.woff2
 dist/lato-latin-ext-400-normal-N27NCBWW.woff2
 dist/lato-latin-ext-700-normal-Q2L5DVMW.woff2
 dist/remixicon-NKANDIL5.woff2
-dist/search_data-B4FE5303.js
-dist/sidebar_items-D92A7833.js
+dist/search_data-E8FD69A0.js
+dist/sidebar_items-01DF2B65.js
 index.html
 readme.html
 search.html

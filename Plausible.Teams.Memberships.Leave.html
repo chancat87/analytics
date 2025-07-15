@@ -8,13 +8,13 @@
     <meta name="project" content="Plausible v0.0.1">
 
 
-    <title>Plausible.Auth.SSO.Domain.Validation — Plausible v0.0.1</title>
+    <title>Plausible.Teams.Memberships.Leave — Plausible v0.0.1</title>
     <link rel="stylesheet" href="dist/html-elixir-P45HOAC7.css" />
 
 
     <script src="dist/handlebars.runtime-NWIB6V2M.js"></script>
     <script src="dist/handlebars.templates-K7URE6B4.js"></script>
-    <script src="dist/sidebar_items-D92A7833.js"></script>
+    <script src="dist/sidebar_items-01DF2B65.js"></script>
     <script src="docs_config.js"></script>
     <script async src="dist/html-PVRIOB7F.js"></script>
 
@@ -126,22 +126,19 @@ Pages
 <div id="top-content">
   <h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/extra/lib/plausible/auth/sso/domain/validation.ex#L1" title="View Source" class="icon-action" rel="help">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/teams/memberships/leave.ex#L1" title="View Source" class="icon-action" rel="help">
         <i class="ri-code-s-slash-line" aria-hidden="true"></i>
         <span class="sr-only">View Source</span>
       </a>
 
-    <span translate="no">Plausible.Auth.SSO.Domain.Validation</span> 
+    <span translate="no">Plausible.Teams.Memberships.Leave</span> 
     <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
 
   </h1>
 
 
     <section id="moduledoc">
-<p>SSO domain validation chain</p><ol><li><p>DNS TXT <code class="inline">{domain}</code> record lookup. 
-Successful expectation contains <code class="inline">plausible-sso-verification={domain-identifier}</code> record.</p></li><li><p>HTTP GET lookup at <code class="inline">https://{domain}/plausible-sso-verification</code> 
-Successful expectation contains <code class="inline">{domain-identifier}</code> in the body.</p></li><li><p>META tag lookup at <code class="inline">https://{domain}</code>
-Successful expectation contains:</p><pre><code class="makeup html" translate="no"><span class="w">  </span><span class="p" data-group-id="4155453960-1">&lt;</span><span class="k">meta</span><span class="w"> </span><span class="na">name</span><span class="o">=</span><span class="s">&quot;plausible-sso-verification&quot;</span><span class="w"> </span><span class="na">content</span><span class="o">=</span><span class="s">&quot;{domain-identifier}&quot;</span><span class="p" data-group-id="4155453960-1">&gt;</span><span class="w"> </span></code></pre><p>in the body of <code class="inline">text/html</code> type.</p></li></ol>
+<p>Service for leaving a team by member.</p>
     </section>
 
 </div>
@@ -160,7 +157,7 @@ Successful expectation contains:</p><pre><code class="makeup html" translate="no
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#dns_txt/3" data-no-tooltip translate="no">dns_txt(sso_domain, domain_identifier, opts \\ [])</a>
+        <a href="#leave/3" data-no-tooltip translate="no">leave(team, user, opts \\ [])</a>
 
       </div>
 
@@ -168,23 +165,7 @@ Successful expectation contains:</p><pre><code class="makeup html" translate="no
 
     <div class="summary-row">
       <div class="summary-signature">
-        <a href="#meta_tag/3" data-no-tooltip translate="no">meta_tag(sso_domain, domain_identifier, opts \\ [])</a>
-
-      </div>
-
-    </div>
-
-    <div class="summary-row">
-      <div class="summary-signature">
-        <a href="#run/3" data-no-tooltip translate="no">run(sso_domain, domain_identifier, opts \\ [])</a>
-
-      </div>
-
-    </div>
-
-    <div class="summary-row">
-      <div class="summary-signature">
-        <a href="#url/3" data-no-tooltip translate="no">url(sso_domain, domain_identifier, opts \\ [])</a>
+        <a href="#send_team_member_left_email/1" data-no-tooltip translate="no">send_team_member_left_email(team_membership)</a>
 
       </div>
 
@@ -203,39 +184,17 @@ Successful expectation contains:</p><pre><code class="makeup html" translate="no
       <span class="text">Functions</span>
     </h1>
     <div class="functions-list">
-<section class="detail" id="dns_txt/3">
+<section class="detail" id="leave/3">
 
-    <span id="dns_txt/2"></span>
-
-  <div class="detail-header">
-    <a href="#dns_txt/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
-      <i class="ri-link-m" aria-hidden="true"></i>
-    </a>
-    <h1 class="signature" translate="no">dns_txt(sso_domain, domain_identifier, opts \\ [])</h1>
-
-      <a href="https://github.com/plausible/analytics/blob/main/extra/lib/plausible/auth/sso/domain/validation.ex#L73" class="icon-action" rel="help" aria-label="View Source">
-       <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-     </a>
-
-
-  </div>
-
-  <section class="docstring">
-
-
-  </section>
-</section>
-<section class="detail" id="meta_tag/3">
-
-    <span id="meta_tag/2"></span>
+    <span id="leave/2"></span>
 
   <div class="detail-header">
-    <a href="#meta_tag/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#leave/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">meta_tag(sso_domain, domain_identifier, opts \\ [])</h1>
+    <h1 class="signature" translate="no">leave(team, user, opts \\ [])</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/extra/lib/plausible/auth/sso/domain/validation.ex#L57" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/teams/memberships/leave.ex#L12" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -246,24 +205,24 @@ Successful expectation contains:</p><pre><code class="makeup html" translate="no
 
       <div class="specs">
 
-          <pre translate="no"><span class="attribute">@spec</span> meta_tag(<a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/Keyword.html#t:t/0">Keyword.t</a>()) :: <a href="https://hexdocs.pm/elixir/typespecs.html#built-in-types">boolean</a>()</pre>
+          <pre translate="no"><span class="attribute">@spec</span> leave(<a href="Plausible.Teams.Team.html#t:t/0">Plausible.Teams.Team.t</a>(), <a href="Plausible.Auth.User.html#t:t/0">Plausible.Auth.User.t</a>(), <a href="https://hexdocs.pm/elixir/Keyword.html#t:t/0">Keyword.t</a>()) ::
+  {:ok, <a href="Plausible.Teams.Membership.html#t:t/0">Plausible.Teams.Membership.t</a>()}
+  | {:error, :only_one_owner | :membership_not_found}</pre>
 
       </div>
 
 
   </section>
 </section>
-<section class="detail" id="run/3">
-
-    <span id="run/2"></span>
+<section class="detail" id="send_team_member_left_email/1">
 
   <div class="detail-header">
-    <a href="#run/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
+    <a href="#send_team_member_left_email/1" class="detail-link" data-no-tooltip aria-label="Link to this function">
       <i class="ri-link-m" aria-hidden="true"></i>
     </a>
-    <h1 class="signature" translate="no">run(sso_domain, domain_identifier, opts \\ [])</h1>
+    <h1 class="signature" translate="no">send_team_member_left_email(team_membership)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/extra/lib/plausible/auth/sso/domain/validation.ex#L28" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/teams/memberships/leave.ex#L57" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -271,41 +230,6 @@ Successful expectation contains:</p><pre><code class="makeup html" translate="no
   </div>
 
   <section class="docstring">
-
-      <div class="specs">
-
-          <pre translate="no"><span class="attribute">@spec</span> run(<a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/Keyword.html#t:t/0">Keyword.t</a>()) ::
-  {:ok, <a href="Plausible.Auth.SSO.Domain.html#t:validation_method/0">Plausible.Auth.SSO.Domain.validation_method</a>()} | {:error, :invalid}</pre>
-
-      </div>
-
-
-  </section>
-</section>
-<section class="detail" id="url/3">
-
-    <span id="url/2"></span>
-
-  <div class="detail-header">
-    <a href="#url/3" class="detail-link" data-no-tooltip aria-label="Link to this function">
-      <i class="ri-link-m" aria-hidden="true"></i>
-    </a>
-    <h1 class="signature" translate="no">url(sso_domain, domain_identifier, opts \\ [])</h1>
-
-      <a href="https://github.com/plausible/analytics/blob/main/extra/lib/plausible/auth/sso/domain/validation.ex#L42" class="icon-action" rel="help" aria-label="View Source">
-       <i class="ri-code-s-slash-line" aria-hidden="true"></i>
-     </a>
-
-
-  </div>
-
-  <section class="docstring">
-
-      <div class="specs">
-
-          <pre translate="no"><span class="attribute">@spec</span> url(<a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/String.html#t:t/0">String.t</a>(), <a href="https://hexdocs.pm/elixir/Keyword.html#t:t/0">Keyword.t</a>()) :: <a href="https://hexdocs.pm/elixir/typespecs.html#built-in-types">boolean</a>()</pre>
-
-      </div>
 
 
   </section>
