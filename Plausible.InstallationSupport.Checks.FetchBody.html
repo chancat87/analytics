@@ -8,13 +8,13 @@
     <meta name="project" content="Plausible v0.0.1">
 
 
-    <title>Plausible.Verification.Checks.SnippetCacheBust — Plausible v0.0.1</title>
+    <title>Plausible.InstallationSupport.Checks.FetchBody — Plausible v0.0.1</title>
     <link rel="stylesheet" href="dist/html-elixir-P45HOAC7.css" />
 
 
     <script src="dist/handlebars.runtime-NWIB6V2M.js"></script>
     <script src="dist/handlebars.templates-K7URE6B4.js"></script>
-    <script src="dist/sidebar_items-01DF2B65.js"></script>
+    <script src="dist/sidebar_items-737EBBEF.js"></script>
     <script src="docs_config.js"></script>
     <script async src="dist/html-PVRIOB7F.js"></script>
 
@@ -126,23 +126,21 @@ Pages
 <div id="top-content">
   <h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/checks/snippet_cache_bust.ex#L1" title="View Source" class="icon-action" rel="help">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/checks/fetch_body.ex#L1" title="View Source" class="icon-action" rel="help">
         <i class="ri-code-s-slash-line" aria-hidden="true"></i>
         <span class="sr-only">View Source</span>
       </a>
 
-    <span translate="no">Plausible.Verification.Checks.SnippetCacheBust</span> 
+    <span translate="no">Plausible.InstallationSupport.Checks.FetchBody</span> 
     <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
 
   </h1>
 
 
     <section id="moduledoc">
-<p>A naive way of trying to figure out whether the latest site contents 
-is wrapped with some CDN/caching layer.
-In case no snippets were found, we'll try to bust the cache by appending a random query parameter
-and re-run <a href="Plausible.Verification.Checks.FetchBody.html"><code class="inline">Plausible.Verification.Checks.FetchBody</code></a> and <a href="Plausible.Verification.Checks.Snippet.html"><code class="inline">Plausible.Verification.Checks.Snippet</code></a> checks.
-If the result is different this time, we'll assume cache likely.</p>
+<p>Fetches the body of the site and extracts the HTML document, if available, for
+further processing. See <a href="Plausible.InstallationSupport.LegacyVerification.Checks.html"><code class="inline">Plausible.InstallationSupport.LegacyVerification.Checks</code></a>
+for the execution sequence.</p>
     </section>
 
 </div>
@@ -188,7 +186,7 @@ If the result is different this time, we'll assume cache likely.</p>
     </a>
     <h1 class="signature" translate="no">perform_safe(state)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/checks/snippet_cache_bust.ex#L9" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/checks/fetch_body.ex#L7" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 

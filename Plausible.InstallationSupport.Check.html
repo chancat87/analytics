@@ -8,13 +8,13 @@
     <meta name="project" content="Plausible v0.0.1">
 
 
-    <title>Plausible.Verification.Check — Plausible v0.0.1</title>
+    <title>Plausible.InstallationSupport.Check — Plausible v0.0.1</title>
     <link rel="stylesheet" href="dist/html-elixir-P45HOAC7.css" />
 
 
     <script src="dist/handlebars.runtime-NWIB6V2M.js"></script>
     <script src="dist/handlebars.templates-K7URE6B4.js"></script>
-    <script src="dist/sidebar_items-01DF2B65.js"></script>
+    <script src="dist/sidebar_items-737EBBEF.js"></script>
     <script src="docs_config.js"></script>
     <script async src="dist/html-PVRIOB7F.js"></script>
 
@@ -126,23 +126,24 @@ Pages
 <div id="top-content">
   <h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/check.ex#L1" title="View Source" class="icon-action" rel="help">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/check.ex#L1" title="View Source" class="icon-action" rel="help">
         <i class="ri-code-s-slash-line" aria-hidden="true"></i>
         <span class="sr-only">View Source</span>
       </a>
 
-    <span translate="no">Plausible.Verification.Check</span> <small>behaviour</small>
+    <span translate="no">Plausible.InstallationSupport.Check</span> <small>behaviour</small>
     <small class="app-vsn" translate="no">(Plausible v0.0.1)</small>
 
   </h1>
 
 
     <section id="moduledoc">
-<p>Behaviour to be implemented by specific site verification checks.
-<code class="inline">report_progress_as()</code> doesn't necessarily reflect the actual check description,
-it serves as a user-facing message grouping mechanism, to prevent frequent message flashing when checks rotate often.
-Each check operates on <code class="inline">state()</code> and is expected to return it, optionally modified, by all means.
-<code class="inline">perform_safe/1</code> is used to guarantee no exceptions are thrown by faulty implementations, not to interrupt LiveView.</p>
+<p>Behaviour to be implemented by a specific installation support check.</p><p><code class="inline">report_progress_as()</code> doesn't necessarily reflect the actual check
+description, it serves as a user-facing message grouping mechanism,
+to prevent frequent message flashing when checks rotate often.</p><p>Each check operates on <code class="inline">%Plausible.InstallationSupport.State{}</code> and is
+expected to return it, optionally modified, by all means. <code class="inline">perform_safe/1</code>
+is used to guarantee no exceptions are thrown by faulty implementations,
+not to interrupt LiveView.</p>
     </section>
 
 </div>
@@ -210,7 +211,7 @@ Each check operates on <code class="inline">state()</code> and is expected to re
     </a>
     <h1 class="signature" translate="no">state()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/check.ex#L9" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/check.ex#L14" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -221,7 +222,7 @@ Each check operates on <code class="inline">state()</code> and is expected to re
 
       <div class="specs">
 
-          <pre translate="no"><span class="attribute">@type</span> state() :: <a href="Plausible.Verification.State.html#t:t/0">Plausible.Verification.State.t</a>()</pre>
+          <pre translate="no"><span class="attribute">@type</span> state() :: <a href="Plausible.InstallationSupport.State.html#t:t/0">Plausible.InstallationSupport.State.t</a>()</pre>
 
       </div>
 
@@ -248,7 +249,7 @@ Each check operates on <code class="inline">state()</code> and is expected to re
     </a>
     <h1 class="signature" translate="no">perform(state)</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/check.ex#L11" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/check.ex#L16" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
@@ -274,7 +275,7 @@ Each check operates on <code class="inline">state()</code> and is expected to re
     </a>
     <h1 class="signature" translate="no">report_progress_as()</h1>
 
-      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/verification/check.ex#L10" class="icon-action" rel="help" aria-label="View Source">
+      <a href="https://github.com/plausible/analytics/blob/main/lib/plausible/installation_support/check.ex#L15" class="icon-action" rel="help" aria-label="View Source">
        <i class="ri-code-s-slash-line" aria-hidden="true"></i>
      </a>
 
