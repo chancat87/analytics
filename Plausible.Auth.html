@@ -306,16 +306,16 @@ Pages
       <div class="specs">
 
           <pre translate="no"><span class="attribute">@type</span> rate_limit_type() ::
-  :totp_setup_user
+  :password_change_user
+  | :email_change_user
+  | :totp_setup_user
   | :totp_setup_ip
+  | :login_user
+  | :login_ip
   | :activation_request_user
   | :activation_request_ip
   | :activation_user
-  | :activation_ip
-  | :password_change_user
-  | :email_change_user
-  | :login_user
-  | :login_ip</pre>
+  | :activation_ip</pre>
 
       </div>
 
@@ -663,7 +663,7 @@ Pages
 
       <div class="specs">
 
-          <pre translate="no"><span class="attribute">@spec</span> rate_limit(<a href="#t:rate_limit_type/0">rate_limit_type</a>(), <a href="Plausible.Auth.User.html#t:t/0">Plausible.Auth.User.t</a>() | <a href="https://hexdocs.pm/plug/1.19.1/Plug.Conn.html#t:t/0">Plug.Conn.t</a>()) ::
+          <pre translate="no"><span class="attribute">@spec</span> rate_limit(<a href="#t:rate_limit_type/0">rate_limit_type</a>(), <a href="Plausible.Auth.User.html#t:t/0">Plausible.Auth.User.t</a>() | <a href="https://hexdocs.pm/plug/1.20.1/Plug.Conn.html#t:t/0">Plug.Conn.t</a>()) ::
   :ok | {:error, {:rate_limit, <a href="#t:rate_limit_type/0">rate_limit_type</a>()}}</pre>
 
       </div>
